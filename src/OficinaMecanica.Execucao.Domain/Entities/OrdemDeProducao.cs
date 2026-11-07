@@ -26,10 +26,12 @@ public class OrdemDeProducao : AggregateRoot
     private List<PecaDaOrdem> _pecas;
     public IReadOnlyCollection<PecaDaOrdem> Pecas => _pecas.AsReadOnly();
 
-    private readonly List<EtapaProducao> _etapas = new();
+    // Optei por nao marcar as duas listas abaixo como readonly: a reidratacao feita pelo repositorio
+    // (Infrastructure) preenche os campos privados e o driver nao grava em campo readonly.
+    private List<EtapaProducao> _etapas = new();
     public IReadOnlyCollection<EtapaProducao> Etapas => _etapas.AsReadOnly();
 
-    private readonly List<Apontamento> _apontamentos = new();
+    private List<Apontamento> _apontamentos = new();
     public IReadOnlyCollection<Apontamento> Apontamentos => _apontamentos.AsReadOnly();
 
     private OrdemDeProducao(

@@ -1,0 +1,92 @@
+name: oficinamecanica-execucao
+
+# Self-contained: sobe a API e o MongoDB (replica set de 1 no). O RabbitMQ so sobe com o perfil "standalone":
+# o dono do broker compartilhado e o docker compose do OS Service (5672/15672); aqui, quando usado, ele
+# publica 5673/15673 para nao colidir com ele.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: oficinamecanica-execucao-api:latest
+    container_name: ${EXECUCAO_PREFIXO:-oficinamecanica-execucao}-api
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "false"
+      # Dentro da rede do compose o membro do replica set e "mongo:27017" (ver healthcheck do mongo).
+      ConnectionStrings__MongoDb: "mongodb://mongo:27017/?replicaSet=rs0"
+      MongoDb__Database: "execucao"
+      JwtSettings__Issuer: "OficinaMecanica.Seguranca"
+      JwtSettings__Audience: "OficinaMecanica.Client"
+      JwtSettings__JwksUri: "${JWKS_URI:-http://host.docker.internal:7071/.well-known/jwks.json}"
+      RabbitMq__Host: "${RABBITMQ_HOST:-host.docker.internal}"
+      RabbitMq__Port: "${RABBITMQ_PORT:-5672}"
+      RabbitMq__VirtualHost: "${RABBITMQ_VHOST:-/}"
+      RabbitMq__Username: "${RABBITMQ_USER}"
+      RabbitMq__Password: "${RABBITMQ_PASS}"
+      Otel__Endpoint: "${OTEL_ENDPOINT:-}"
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "delta"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${EXECUCAO_API_PORT:-5002}:8080"
+    healthcheck:
+      # A imagem aspnet nao tem curl nem wget: o GET /health sai por /dev/tcp, recurso do bash (o sh e dash).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7.0.45
+    container_name: ${EXECUCAO_PREFIXO:-oficinamecanica-execucao}-mongo
+    # Replica set e obrigatorio: o outbox transacional do MassTransit.MongoDb usa transacoes, e o Mongo so as
+    # oferece em replica set. O membro se anuncia como "mongo:27017", nome que a API resolve pela rede do
+    # compose. Ferramentas no host conectam em localhost:${EXECUCAO_MONGO_PORT} com directConnection=true.
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    # Publicado so em 127.0.0.1: este Mongo roda sem autenticacao e com --bind_ip_all (a API o alcanca pela rede do
+    # compose), entao a porta do host nao pode ficar exposta em todas as interfaces da maquina.
+    ports:
+      - "127.0.0.1:${EXECUCAO_MONGO_PORT:-27018}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      # Inicia o replica set na primeira execucao (rs.status falha ate la) e so fica saudavel quando o no
+      # virou PRIMARY: a API depende disso para abrir transacoes.
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}).ok }" >/dev/null 2>&1;
+          mongosh --quiet --eval "db.hello().isWritablePrimary" | grep -q true
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.4.0-management
+    container_name: ${EXECUCAO_PREFIXO:-oficinamecanica-execucao}-rabbitmq
+    profiles: ["standalone"]
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS}"
+    # So em 127.0.0.1 pelo mesmo motivo do mongo: broker de desenvolvimento, sem endurecimento, nao vai para a rede.
+    ports:
+      - "127.0.0.1:${EXECUCAO_RABBITMQ_PORT:-5673}:5672"
+      - "127.0.0.1:${EXECUCAO_RABBITMQ_MGMT_PORT:-15673}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

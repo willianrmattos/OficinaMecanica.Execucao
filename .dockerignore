@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/.vs/
+**/node_modules/
+**/.git/
+**/tests/
+**/TestResults/
+**/coverage/
+.env
+.env.*
+*.md
+docs/
+.dockerignore
