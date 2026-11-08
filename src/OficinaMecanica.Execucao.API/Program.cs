@@ -43,8 +43,10 @@ app.Use((context, next) =>
     return next();
 });
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+// As metricas HTTP ficam por fora do middleware de excecoes para ler o status que ele define (499 de cliente que
+// abandonou, 400/404/409 e 500); por dentro, o prometheus-net veria o 200 padrao e contaria todo erro como sucesso.
 app.UseHttpMetrics();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseSwaggerDoExecucao();
 
