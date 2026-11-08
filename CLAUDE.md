@@ -13,11 +13,11 @@ O mecanico opera pela API HTTP (JWT do Seguranca). Nenhuma dependencia de
 compilacao com outro repositorio e nenhum acesso ao banco de outro servico.
 
 Estado atual: Domain, Application, Infrastructure (MongoDB + MassTransit/RabbitMQ),
-API, Dockerfile, docker-compose, testes (incluindo Testcontainers) e, da F7, o CI/CD
+API, Dockerfile, docker-compose, testes (incluindo Testcontainers) e o CI/CD
 (`.github/`), os manifests (`k8s/execucao/`), a protecao de branch versionada e os
-scripts de `scripts/` prontos. Falta o README final (F9) e o teste real no Atlas M0
-(precisa de credenciais do usuario). O repositorio ainda nao existe no GitHub: a F7 foi
-validada so localmente (`actionlint`, `kubeconform`, `docker build`, execucao da imagem
+scripts de `scripts/` prontos. O `README.md` e o `docs/cobertura.md` estao prontos; falta o teste real no Atlas M0
+(precisa de credenciais do usuario). O repositorio ainda nao existe no GitHub: o CI/CD foi
+validado so localmente (`actionlint`, `kubeconform`, `docker build`, execucao da imagem
 contra MongoDB e RabbitMQ reais, execucao dos scripts e do `ci-local.sh`); a primeira
 execucao real do workflow acontece na publicacao.
 
@@ -71,9 +71,9 @@ Application -> Infrastructure -> API), DDD, CQRS via MediatR,
 - Comentarios so quando explicam um "porque" nao obvio, em primeira pessoa
   ("optei por"), nunca em segunda pessoa e sem narrar incidente
 - Testes que aguardam uma tarefa que o codigo sob teste pode deixar de liberar (`TaskCompletionSource`) usam `.ComTetoAsync("...")` (`Support/EsperaLimitada`, teto de 6 s): sem a protecao o teste FALHA com mensagem clara em vez de travar o run
-- Testes: xUnit + FluentAssertions (sem `Assert.*` puro) + Moq (so no
-  Application.Tests e nos consumers do Integration.Tests, que mapeiam contrato -> command) +
-  Bogus nos builders do `Tests.Common`; Domain.Tests nao usa mock
+- Testes: xUnit + FluentAssertions (sem `Assert.*` puro) + Moq (no Application.Tests e, no
+  Integration.Tests, onde um fake em memoria nao serve: consumers que mapeiam contrato -> command, health
+  checks, middleware e metricas HTTP) + Bogus nos builders do `Tests.Common`; Domain.Tests nao usa mock
 - O "agora" nunca vem de `DateTime` dentro do dominio: entra por parametro
   (`DateTimeOffset`) e os handlers leem de `TimeProvider`
 
@@ -122,7 +122,7 @@ Fila -> EmDiagnostico -> DiagnosticoConcluido -> AguardandoExecucao -> EmExecuca
   fila de reparo
 - `IncrementVersion` e publico porque quem incrementa e o repositorio (outro
   assembly). `_etapas` e `_apontamentos` deixaram de ser `readonly` (unica mudanca no
-  Domain da onda 2): a reidratacao por `BsonClassMap` preenche o campo privado e o
+  Domain por causa da persistencia): a reidratacao por `BsonClassMap` preenche o campo privado e o
   driver nao grava em campo readonly
 
 ## Application
@@ -208,10 +208,10 @@ Fila -> EmDiagnostico -> DiagnosticoConcluido -> AguardandoExecucao -> EmExecuca
   ve uma medicao nova. O `RabbitMqHealthCheck` entrega a tentativa abandonada (limite de 3 s OU cancelamento do chamador) ao
   fechamento em segundo plano, para um broker congelado que completar o handshake depois nao vazar a conexao. O corpo
   (`ProntidaoResponseWriter`) sai com `UnsafeRelaxedJsonEscaping` (acentos legiveis; e JSON puro, nunca HTML)
-- **Partida com broker fora (para a F7)**: com `WaitUntilStarted = true` e o broker inalcancavel no boot a API nao
+- **Partida com broker fora (relevante para o deploy)**: com `WaitUntilStarted = true` e o broker inalcancavel no boot a API nao
   escuta, SEM limite de tempo (medido: apos mais de 3 min nenhum "Bus started", nenhum crash, `/health` sem
   resposta). Uma `startupProbe` finita mata o pod e ele entra em CrashLoopBackOff ate o broker voltar: risco aceito
-  para a F7. `WaitUntilStarted = true` tambem impede subir um pod NOVO durante uma queda do broker (trade-off
+  para o primeiro deploy. `WaitUntilStarted = true` tambem impede subir um pod NOVO durante uma queda do broker (trade-off
   documentado: pods ja de pe seguem atendendo, por causa do outbox)
 - `MassTransitIntegrationEventPublisher` so faz `Publish` e copia o `MessageId` do contrato para o envelope
   (delegate compilado e cacheado por tipo)
@@ -256,6 +256,32 @@ Todos `[Authorize]`; o `mecanicoId` vem SEMPRE do claim `sub` (campo de corpo e 
 `ExceptionHandlingMiddleware`: `DomainException`/`ValidationException` -> 400 (pt-BR), `KeyNotFoundException`
 -> 404, `ConcorrenciaException` -> 409, sem `sub` -> 401, demais -> 500 sem detalhes. Corpo/JSON invalido e
 query invalida tambem saem no formato `ErrorResponse` (a obrigatoriedade dos campos e do FluentValidation).
+
+**Cliente que abandona a requisicao** (`RequestAborted` + `OperationCanceledException`, resposta ainda nao
+iniciada) -> **499 sem corpo**, log **Information** so com o TEMPLATE da rota (`RoutePattern.RawText`, ou
+`(rota desconhecida)`) e o trace id, nunca o path, a query nem o token: e seguranca por construcao (nas
+rotas da Execucao o path so leva o GUID da ordem, mas o log nao depende disso). Cancelamento com o cliente
+ainda conectado (timeout interno de dependencia) continua 500 com log Error. Com a resposta ja iniciada
+(`HasStarted`) o middleware NAO toca em status nem cabecalhos (no Kestrel lancaria `InvalidOperationException`):
+registra o erro (Error) e aborta a conexao (`context.Abort()`; o cliente ve a falha em vez de uma resposta
+truncada que parece completa). Se foi o proprio cliente que fechou (`RequestAborted` ja cancelado +
+`OperationCanceledException`) a conexao ja esta fechada: so Information, sem abortar. `UseHttpMetrics()`
+vem ANTES do middleware no `Program.cs`, entao o `/metrics` conta 499/400/404/409/500 com o `code` real
+(por dentro, tudo sairia com `code="200"`); `MetricasHttpTests` trava a ordem no pipeline real.
+
+**Claim abandonado** (medido contra MongoDB e RabbitMQ reais; o cliente que larga a conexao nao sabe se o
+claim valeu):
+- Diagnostico (`POST /api/diagnosticos/proximo`, com a transacao do outbox): cancelamento antes do commit
+  aborta a transacao (a ordem fica em `Fila`, outbox com 0 mensagens, nenhum evento); com o commit ja enviado
+  ao servidor ele pode completar ("resultado desconhecido", ver ADR 0002): a ordem vai para `EmDiagnostico`
+  com o mecanico e sai exatamente 1 `DiagnosticoIniciado`, so a resposta se perde. Sem estado parcial em 210
+  iteracoes.
+- Reparo (`POST /api/reparos/proximo`, sem transacao, um unico `ReplaceOne`): a escrita pode ser aplicada sem
+  o mecanico receber a resposta (139/150 e 56/60 nos abandonos medidos).
+- Recuperar: `GET /api/fila?status=EmDiagnostico&mecanicoId=<sub>` (diagnostico) ou
+  `GET /api/fila?status=EmExecucao&mecanicoId=<sub>` (reparo). Limitacao conhecida: repetir o POST as cegas
+  reivindica OUTRA ordem e a primeira fica parada com o mecanico (nao ha timer de reparo que a devolva). O
+  cliente deve consultar a fila antes de repetir.
 `/health` (anonimo) so confirma que o processo esta de pe (liveness, sem dependencias); `/health/ready` e a
 readiness: MongoDB `Unhealthy` -> 503 (Atlas instavel tira o pod da rotacao em vez de reinicia-lo), broker e bus
 `Degraded` -> 200 (ver "Prontidao" em Mensageria). `/metrics` anonimo
@@ -336,13 +362,13 @@ Meta: >= 80% de linhas do servico inteiro (Contracts, Domain, Application, Infra
 marcado com `GeneratedCode` ou `ExcludeFromCodeCoverage`. `CompilerGenerated` NAO e excluido: tiraria iteradores, lambdas e maquinas
 de estado async e inflaria a medida. O SonarCloud usa a mesma lista de arquivos (`sonar.coverage.exclusions`).
 
-Ultima medicao (2026-11-08, `bash scripts/ci-local.sh`, todos os projetos de teste, incluindo Infra): **bruto 99,4%** (1876 de 1887
-linhas); **com as exclusoes 99,41%** (1695 de 1705), que e o numero do gate. Por assembly (com exclusoes): Contracts, API e Domain 100%,
+Ultima medicao (2026-11-08, `bash scripts/cobertura.sh`, todos os projetos de teste, incluindo Infra): **bruto 99,42%** (1899 de 1910
+linhas); **com as exclusoes 99,42%** (1718 de 1728), que e o numero do gate. Por assembly (com exclusoes): Contracts, API e Domain 100%,
 Application 99,7%, Infrastructure 98,6%.
 `Program.cs` entra coberto porque os testes de API sobem a aplicacao inteira. Testes: Domain 185, Application 162, Contracts 23,
-Integration 272 (219 sem Docker + 53 `Category=Infra`), 642 no total.
+Integration 291 (238 sem Docker + 53 `Category=Infra`), 661 no total.
 
-## CI/CD e Kubernetes (F7)
+## CI/CD e Kubernetes
 
 Decisoes no ADR 0003. Pipeline proprio em `.github/workflows/ci.yml` (nome `CI`; gatilhos push/PR em `main`/`release` e
 `workflow_dispatch`; `concurrency` por ref, `cancel-in-progress` so em PR; `permissions` minimas, `id-token: write` so nos jobs
@@ -462,7 +488,7 @@ a `PrazoExpirado`, que esta fora do subconjunto). O unico outro desvio e o
 `Contracts.Tests.csproj`: `Microsoft.NET.Test.Sdk` e as duas dependencias fixadas
 descritas em "NuGet", iguais aos outros projetos de teste deste repositorio.
 
-## Para a saga do OS Service (F3)
+## Para a saga do OS Service
 
 - `SolicitarDiagnostico`/`IniciarExecucao`/`CancelarProducao` vao para o endpoint `execucao-comandos`
   (`Filas.Execucao`); o `MessageId` do contrato e o `MessageId` do envelope (o inbox deduplica por ele)
@@ -508,9 +534,10 @@ de vulnerabilidade High.
 ## Pendencias
 
 - Teste real de transacao + consumer no Atlas M0 (credenciais do usuario); fallback do spike descrito no ADR 0001
-- Publicacao da F7 (repositorio no GitHub, OIDC, SonarCloud, ruleset, **sha das actions de terceiros**): lista em "CI/CD e Kubernetes"; README final e dashboard (F9)
-- F9 (`OficinaMecanica.Infra`): `/health/ready` e `/metrics` sao anonimos e a rota `execucaoserver` da APIM repassa qualquer path. O custo de
+- Decisao pendente no `OficinaMecanica.Banco` (README de la, "Decisao pendente: como o CI alcanca a API do Atlas"): sem ela o CI do Banco recebe 403 do Atlas, o job `validate` trava e o cluster que a Execucao usa nao e provisionado pelo CI
+- Publicacao do CI/CD (repositorio no GitHub, OIDC, SonarCloud, ruleset, **sha das actions de terceiros**): lista em "CI/CD e Kubernetes"; o dashboard fica para a documentacao final
+- Bloqueio na APIM (`OficinaMecanica.Infra`): `/health/ready` e `/metrics` sao anonimos e a rota `execucaoserver` da APIM repassa qualquer path. O custo de
   `/health/ready` ja esta limitado pelo cache de 5 s (no maximo 1 conexao AMQP e 1 ping no Atlas por janela, qualquer que seja a taxa de
-  requisicoes); falta bloquear os dois paths na rota publica (policy `return-response` 404 na APIM), porque o cache nao esconde o endpoint nem
-  o `/metrics`
+  requisicoes); o cache nao esconde o endpoint nem o `/metrics`, entao o bloqueio dos dois paths na rota publica (policy `return-response`
+  404 na APIM) foi escrito no Infra (ADR 0007 de la) e fica ativo quando o Terraform do Infra for aplicado (ainda nao foi)
 - Atlas/Key Vault: `ConnectionStrings__MongoDb` e credenciais RabbitMQ so por segredo, nunca em arquivo versionado

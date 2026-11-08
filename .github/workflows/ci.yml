@@ -282,9 +282,10 @@ jobs:
           dotnet-sonarscanner end /d:sonar.token="$SONAR_TOKEN"
 
   # Scan e push em jobs separados de proposito: o Trivy e as actions do Docker sao de terceiros, e o job de push tem
-  # id-token: write (a identidade OIDC do servico tem AcrPush, AKS Cluster Admin e leitura do Key Vault). Qualquer step de
-  # um job com id-token: write pode pedir o token OIDC; aqui o job que executa codigo de terceiros so tem contents: read,
-  # entao nao tem como obter a identidade do Azure. O push so baixa a imagem ja aprovada, carrega no Docker e a empurra.
+  # id-token: write (a identidade OIDC do servico tem AcrPush e AKS Cluster Admin, e nenhuma role no Key Vault: a connection
+  # string chega ao pod pelo CSI). Qualquer step de um job com id-token: write pode pedir o token OIDC; aqui o job que
+  # executa codigo de terceiros so tem contents: read, entao nao tem como obter a identidade do Azure. O push so baixa a
+  # imagem ja aprovada, carrega no Docker e a empurra.
   scan-image:
     name: Scan Image (Trivy)
     # So depois de build/testes E de a qualidade aprovar. main e release publicam; PR nunca publica imagem.

@@ -89,7 +89,7 @@ step pode pedir um token OIDC com `AcrPush` e `AKS Cluster Admin`; por isso o `s
 push a carrega (`docker load`) e empurra a MESMA imagem, sem rebuild. A tag de deploy e sempre o sha do commit; `:latest` so
 sai da `main`, para um push em `release` nao sobrescrever o que esta em producao.
 
-**Fixar as actions de terceiros por sha e BLOQUEANTE antes do primeiro push real.** Nesta fase as actions estao por tag de
+**Fixar as actions de terceiros por sha e BLOQUEANTE antes do primeiro push real.** Hoje as actions estao por tag de
 versao. Antes de o repositorio existir no GitHub e de qualquer execucao real, `docker/setup-buildx-action`,
 `docker/build-push-action`, `aquasecurity/trivy-action`, `dorny/test-reporter`, `azure/login` e `azure/aks-set-context` devem
 ser trocadas pelo sha COMPLETO de commit de uma versao verificada (comentario com a tag ao lado); o Dependabot
@@ -102,11 +102,11 @@ direto ou transitivo, resolver para major diferente de 8; se o proprio `dotnet l
 fica na versao que o `MassTransit.MongoDb 8.5.12` traz).
 
 **OIDC.** `azure/login` com a identidade da Execucao (`github_oidc_aks_app` no `OficinaMecanica.Infra`: so `push` em
-`main`/`release`, sem credencial para `pull_request`; `AcrPush`, `AKS Cluster Admin` e `Key Vault Secrets User` apenas no
-secret `execucao-mongo-connection-string`). Os jobs que falam com o Azure declaram `id-token: write`; os demais ficam com
+`main`/`release`, sem credencial para `pull_request`; `AcrPush` e `AKS Cluster Admin`, e nenhuma role no Key Vault: o
+`key_vault_secret_scopes` dela e vazio). Os jobs que falam com o Azure declaram `id-token: write`; os demais ficam com
 `contents: read`. Os checkouts usam `persist-credentials: false` (nenhum job precisa do token do repositorio depois do
-checkout) e o job de push nem faz checkout. Como nao ha migration, o pipeline nao usa a permissao de leitura do secret: a
-connection string so chega ao pod pelo CSI. O deploy tem `concurrency: deploy-aks-execucao` (`cancel-in-progress: false`):
+checkout) e o job de push nem faz checkout. Como nao ha migration, o pipeline nao le segredo: a
+connection string so chega ao pod pelo CSI, com a identidade do addon do AKS. O deploy tem `concurrency: deploy-aks-execucao` (`cancel-in-progress: false`):
 `main` e `release` apontam para o MESMO Deployment e a concurrency do workflow e por ref, entao sem o grupo dois deploys
 poderiam rodar rollouts ao mesmo tempo; um deploy ainda pendente e substituido pelo mais novo. O render dos manifests falha se
 `IMAGE` vier vazia (`${IMAGE:?}`) antes de qualquer chamada ao cluster.
@@ -175,9 +175,10 @@ a cada `IntervaloDoOutboxEmMs`) e custa ate 90 s para tirar um pod da rotacao.
   `Health__ProntidaoCacheSegundos`; 0 desliga), com as chamadas simultaneas esperando uma unica avaliacao; o custo cai para no
   maximo uma conexao AMQP e um ping por janela, qualquer que seja a taxa de requisicoes. O cache e menor que o `periodSeconds` da
   readiness (30 s), entao cada probe ve uma medicao nova; excecao e cancelamento do chamador nunca sao guardados (os dois checks
-  deixam o cancelamento subir; um 503 falso de uma requisicao abortada nao pode ficar 5 s no cache). Mitigacao ainda pendente da
-  F9, no `OficinaMecanica.Infra`: policy da APIM que devolve 404 para `/health/ready` e `/metrics` na rota publica (as probes do
-  kubelet e a coleta de metricas nao passam pela APIM); o cache limita o custo, mas nao esconde o endpoint.
+  deixam o cancelamento subir; um 503 falso de uma requisicao abortada nao pode ficar 5 s no cache). Mitigacao no
+  `OficinaMecanica.Infra` (ADR 0007 de la): a policy da APIM que devolve 404 para `/health/ready` e `/metrics` na rota publica
+  existe e fica ativa quando o Terraform do Infra for aplicado (ainda nao foi); as probes do kubelet e a coleta de metricas nao
+  passam pela APIM. O cache limita o custo, mas nao esconde o endpoint.
 - O runner do GitHub nao precisa alcancar o Atlas (o deploy nao toca o banco), mas o egress do AKS precisa estar na
   allowlist do Atlas (`OficinaMecanica.Banco`).
 - Antes da publicacao o workflow so foi validado estaticamente e pelos scripts: a primeira execucao real e o momento de fixar as

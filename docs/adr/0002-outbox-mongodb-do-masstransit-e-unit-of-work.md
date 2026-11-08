@@ -75,9 +75,17 @@ condicoes sem as quais a combinacao falha.
   consome parte das ~100 operacoes por segundo.
 - Com `WaitUntilStarted = true` e o broker inalcancavel no boot, a API nao escuta e nao ha limite de tempo (medido,
   sem crash): uma `startupProbe` finita leva o pod a CrashLoopBackOff ate o broker voltar, e nenhum pod NOVO sobe
-  durante uma queda do broker. Trade-off aceito para a F7; os pods ja de pe seguem atendendo por causa do outbox.
+  durante uma queda do broker. Trade-off aceito para o primeiro deploy; os pods ja de pe seguem atendendo por causa do outbox.
 - `UnknownTransactionCommitResult` (commit com resultado desconhecido) nao e tratado separadamente: a falha
   sobe e e retentada como qualquer outra, com a idempotencia de mensagem/negocio como protecao.
+- Cliente que abandona o claim (medido com Mongo e RabbitMQ reais): no diagnostico (com transacao) o cancelamento
+  antes do commit aborta tudo (ordem em `Fila`, outbox com 0 mensagens) e, com o commit ja enviado ao servidor, ele
+  pode completar como "resultado desconhecido": a ordem vai para `EmDiagnostico` e sai exatamente 1
+  `DiagnosticoIniciado`, so a resposta se perde (sem estado parcial em 210 iteracoes). No reparo (sem transacao, um
+  unico `ReplaceOne`) a escrita pode valer sem o mecanico receber a resposta. O cliente confere com
+  `GET /api/fila?status=EmDiagnostico|EmExecucao&mecanicoId=<sub>`; repetir o `POST` as cegas pega outra ordem e
+  deixa a primeira parada (nao ha timer de reparo). O middleware responde 499 sem corpo nesses casos e as metricas
+  do Prometheus passam a refletir 499/4xx/5xx corretamente.
 - Dois commits de transacao com semantica diferente (HTTP confirma, consumer delega ao MassTransit) precisam
   ser lembrados por quem mexer no UoW; o teste de infra cobre os dois caminhos.
 
