@@ -51,12 +51,14 @@ no denominador, e o gate nao tem como julgar a justificativa. `scripts/cobertura
 `ExcludeFromCodeCoverage` em `src/` no relatorio e no Job Summary; hoje nao ha nenhuma.
 
 **Os proprios gates sao testados.** `scripts/testar-scripts.sh` (step do `Build & Test` e do `ci-local.sh`) exercita o caminho
-de FALHA de todos os scripts de CI com entradas sinteticas (71 casos) e, depois, planta defeitos em copias dos scripts
-exigindo que cada um seja detectado (30 mutantes; dentro de um mutante o primeiro caso que reprova basta). Os casos:
+de FALHA de todos os scripts de CI com entradas sinteticas (72 casos) e, depois, planta defeitos em copias dos scripts
+exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Os casos:
 - **gate e guardrail isolados**: 79,9% reprova, 80,0% aprova, 79,96% arredondado reprova, resumo ausente, `COBERTURA_MINIMA`
   vazio, MassTransit 9.x direto e so transitivo, `MassTransit.MongoDb`, saida do Windows com CRLF. O guardrail ganhou o modo
   `--entrada <arquivo>` para analisar uma saida sintetica sem restore;
 - **`verificar-workflow.sh`** (separacao de privilegios do `ci.yml`: job com `id-token` so executa `actions/*` e `azure/*`);
+- **valor do gate no CI**: o `ci.yml` exporta `COBERTURA_MINIMA: "80"` (um mutante troca o 80 por 10 numa copia do `ci.yml`: reduzir o
+  gate no workflow nao pode passar despercebido);
 - **`cobertura.sh relatorio` de ponta a ponta**, sobre um OpenCover sintetico montado em diretorio temporario com o ReportGenerator
   fixado: 79% reprova, 81% aprova, `Program.cs` e `DependencyInjection.cs` sem cobertura ficam fora do numero do gate (so o "com
   exclusoes" vale; cada filtro de exclusao tem um mutante proprio), o aviso de `[ExcludeFromCodeCoverage]` lista os arquivos de
