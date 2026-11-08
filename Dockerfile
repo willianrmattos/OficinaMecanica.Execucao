@@ -22,9 +22,10 @@ RUN dotnet publish src/OficinaMecanica.Execucao.API/OficinaMecanica.Execucao.API
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://+:8080
 # Metricas OTLP em temporalidade delta: a New Relic zera os contadores quando recebe cumulativo.
 ENV OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
-# Usuario nao-root (ja vem criado na imagem base mcr.microsoft.com/dotnet/aspnet:8.0).
+# A porta 8080 vem do ASPNETCORE_HTTP_PORTS da imagem base (aspnet:8.0); redefinir ASPNETCORE_URLS aqui geraria o aviso
+# "Overriding HTTP_PORTS" a cada boot.
+# Usuario nao-root: a imagem base ja traz o usuario app (UID em $APP_UID).
 USER $APP_UID
 ENTRYPOINT ["dotnet", "OficinaMecanica.Execucao.API.dll"]

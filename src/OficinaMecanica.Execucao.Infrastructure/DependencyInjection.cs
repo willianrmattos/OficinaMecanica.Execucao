@@ -12,6 +12,7 @@ using OficinaMecanica.Execucao.Application.Interfaces;
 using OficinaMecanica.Execucao.Domain.Exceptions;
 using OficinaMecanica.Execucao.Domain.Interfaces;
 using OficinaMecanica.Execucao.Infrastructure.Authentication;
+using OficinaMecanica.Execucao.Infrastructure.Health;
 using OficinaMecanica.Execucao.Infrastructure.Messaging;
 using OficinaMecanica.Execucao.Infrastructure.Messaging.Consumers;
 using OficinaMecanica.Execucao.Infrastructure.Observability;
@@ -78,7 +79,10 @@ public static class DependencyInjection
         services.TryAddSingleton(new TransacaoOptions());
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(TransacaoBehavior<,>));
 
-        services.AddHealthChecks().AddCheck<MongoHealthCheck>("mongodb", tags: ["ready"]);
+        // O resultado de cada check de prontidao fica em cache por alguns segundos porque /health/ready e anonimo
+        // (ver OpcoesDaProntidao).
+        services.AddOpcoesDaProntidao(configuration);
+        services.AddHealthChecks().AddCheckComCache<MongoHealthCheck>("mongodb", failureStatus: null, tags: ["ready"]);
 
         return services;
     }
@@ -97,8 +101,9 @@ public static class DependencyInjection
         services.AddSingleton(opcoes);
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
 
+        services.AddOpcoesDaProntidao(configuration);
         if (opcoes.UsaRabbitMq)
-            services.AddHealthChecks().AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["ready"]);
+            services.AddHealthChecks().AddCheckComCache<RabbitMqHealthCheck>("rabbitmq", failureStatus: null, tags: ["ready"]);
 
         // O check do bus que o MassTransit registra tambem nao pode tirar o pod de rotacao quando o broker cair:
         // com o outbox o servico continua aceitando escrita. Rebaixo a falha dele para Degraded (HTTP 200).

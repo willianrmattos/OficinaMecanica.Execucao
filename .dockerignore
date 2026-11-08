@@ -6,8 +6,15 @@
 **/tests/
 **/TestResults/
 **/coverage/
+.claude/
+.github/
+k8s/
+scripts/
+artifacts/
+.config/
+docs/
+*.md
 .env
 .env.*
-*.md
-docs/
+!.env.example
 .dockerignore

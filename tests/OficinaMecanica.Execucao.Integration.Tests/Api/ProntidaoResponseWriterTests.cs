@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,7 @@ namespace OficinaMecanica.Execucao.Integration.Tests.Api;
 // connection string, e nunca pode ir para a resposta. Os asserts casam texto que as excecoes realmente contem.
 public class ProntidaoResponseWriterTests
 {
-    private static async Task<string> EscreverAsync(params (string Nome, HealthReportEntry Entrada)[] entradas)
+    private static async Task<(string Corpo, string TipoDeConteudo)> EscreverAsync(params (string Nome, HealthReportEntry Entrada)[] entradas)
     {
         var relatorio = new HealthReport(
             entradas.ToDictionary(e => e.Nome, e => e.Entrada), TimeSpan.Zero);
@@ -20,8 +21,7 @@ public class ProntidaoResponseWriterTests
 
         await ProntidaoResponseWriter.EscreverAsync(contexto, relatorio);
 
-        contexto.Response.Body.Position = 0;
-        return Encoding.UTF8.GetString(((MemoryStream)contexto.Response.Body).ToArray());
+        return (Encoding.UTF8.GetString(((MemoryStream)contexto.Response.Body).ToArray()), contexto.Response.ContentType!);
     }
 
     private static HealthReportEntry Entrada(HealthStatus status, string descricao, Exception? excecao) =>
@@ -33,7 +33,7 @@ public class ProntidaoResponseWriterTests
         var mongo = new TimeoutException("A timeout occurred selecting a server: mongodb://usuario:senha-do-banco@localhost:1 State: Disconnected");
         var rabbit = new InvalidOperationException("amqp://svc:segredo-do-broker@127.0.0.1:1 BrokerUnreachableException");
 
-        var corpo = await EscreverAsync(
+        var (corpo, _) = await EscreverAsync(
             ("mongodb", Entrada(HealthStatus.Unhealthy, "MongoDB indisponível.", mongo)),
             ("rabbitmq", Entrada(HealthStatus.Degraded, "Não foi possível conectar ao RabbitMQ.", rabbit)));
 
@@ -52,12 +52,30 @@ public class ProntidaoResponseWriterTests
         var resultado = await check.CheckHealthAsync(new HealthCheckContext());
         resultado.Exception.Should().NotBeNull("a premissa do teste e que o resultado real carrega a excecao");
 
-        var corpo = await EscreverAsync(
+        var (corpo, _) = await EscreverAsync(
             ("rabbitmq", Entrada(resultado.Status, resultado.Description!, resultado.Exception)));
 
         corpo.Should().Contain("\"status\":\"Degraded\"");
         corpo.Should().NotContain(resultado.Exception!.GetType().Name)
             .And.NotContain(resultado.Exception.Message)
             .And.NotContain("127.0.0.1");
+    }
+
+    [Fact]
+    public async Task Writer_DeveEscreverStatusAgregadoEDescricaoDeCadaCheckComAcentosLegiveis()
+    {
+        var (corpo, tipo) = await EscreverAsync(
+            ("mongodb", Entrada(HealthStatus.Healthy, "Conexão com o MongoDB estabelecida.", null)),
+            ("rabbitmq", Entrada(HealthStatus.Degraded, "Conexão AMQP com o RabbitMQ estabelecida.", null)));
+
+        tipo.Should().Be("application/json; charset=utf-8");
+        corpo.Should().Contain("Conexão AMQP com o RabbitMQ estabelecida.", "os acentos não são escapados em hexadecimal")
+            .And.NotContain("\\u00");
+        using var documento = JsonDocument.Parse(corpo);
+        var raiz = documento.RootElement;
+        raiz.GetProperty("status").GetString().Should().Be("Degraded");
+        raiz.GetProperty("checks").GetProperty("mongodb").GetProperty("status").GetString().Should().Be("Healthy");
+        raiz.GetProperty("checks").GetProperty("rabbitmq").GetProperty("descricao").GetString().Should().Be("Conexão AMQP com o RabbitMQ estabelecida.");
+        raiz.GetProperty("checks").GetProperty("rabbitmq").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("status", "descricao");
     }
 }

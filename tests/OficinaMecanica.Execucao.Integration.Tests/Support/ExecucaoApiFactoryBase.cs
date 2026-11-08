@@ -27,6 +27,10 @@ public abstract class ExecucaoApiFactoryBase : WebApplicationFactory<Program>
         builder.UseSetting("JwtSettings:Audience", TokenDeTeste.Audience);
         builder.UseSetting("JwtSettings:JwksUri", "http://localhost:1/jwks.json");
 
+        // Sem cache de prontidao: os testes derrubam e restauram dependencias e esperam ver cada mudanca na hora. O cache
+        // tem testes proprios (HealthCheckComCacheTests).
+        builder.UseSetting("Health:ProntidaoCacheSegundos", "0");
+
         ConfigurarAmbiente(builder);
 
         if (!UsaChaveLocal)

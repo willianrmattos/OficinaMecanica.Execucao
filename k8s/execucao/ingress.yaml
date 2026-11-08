@@ -1,0 +1,37 @@
+# Entra no mesmo ingress-nginx do monolito (OficinaMecanica.Infra/helm/main.tf), diferenciado por PREFIXO de path:
+# o monolito continua como catch-all em "/" (OficinaMecanica/k8s/oficinamecanica-api/ingress.yaml) e o ingress-nginx
+# avalia o prefixo mais longo primeiro, entao /execucao/... chega aqui e o resto continua no monolito.
+#
+# A APIM (OficinaMecanica.Infra/apim/main.tf, rota "execucaoserver") usa como backend http://<ip-do-ingress>/execucao e
+# concatena o path da operacao: GET /execucaoserver/health chega ao ingress como GET /execucao/health e o rewrite-target
+# entrega /health ao pod. O pod nunca ve o prefixo /execucao.
+#
+# Deixei de fora a annotation x-forwarded-prefix de proposito: o header X-Forwarded-Prefix (/execucaoserver) vem da
+# policy da APIM e o ingress-nginx o repassa porque o chart liga controller.config.use-forwarded-headers. Definir a
+# annotation aqui sobrescreveria esse valor por /execucao e o Swagger passaria a montar links com o prefixo interno em
+# vez do publico.
+#
+# Com use-regex o pathType precisa ser ImplementationSpecific (o ingress-nginx recusa regex em Prefix).
+# Os grupos: $1 = "/" ou fim do path; $2 = o restante, que vira o novo path ("/execucao" sem barra vira "/").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oficinamecanica-execucao
+  namespace: default
+  labels:
+    app: oficinamecanica-execucao
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /execucao(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: oficinamecanica-execucao
+                port:
+                  number: 80

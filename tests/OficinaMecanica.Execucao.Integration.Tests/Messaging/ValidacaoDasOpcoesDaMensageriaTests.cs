@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -203,26 +202,5 @@ public class PartidaDoServicoTests
         var partida = () => api.Server;
 
         partida.Should().NotThrow();
-    }
-}
-
-public class RabbitMqHealthCheckTests
-{
-    [Fact]
-    public async Task BrokerInalcancavel_DeveResponderDegradedEmVezDeUnhealthy()
-    {
-        var check = new RabbitMqHealthCheck(Options.Create(new RabbitMqOptions
-        {
-            Host = "127.0.0.1",
-            Port = 1,
-            Username = "svc",
-            Password = "x"
-        }));
-
-        var resultado = await check.CheckHealthAsync(new HealthCheckContext());
-
-        resultado.Status.Should().Be(HealthStatus.Degraded);
-        resultado.Description.Should().Contain("outbox");
-        resultado.Exception.Should().NotBeNull();
     }
 }

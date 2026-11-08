@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Os testes trocam a fabrica de conexao do RabbitMqHealthCheck (construtor internal) para simular uma conexao tardia. -->
+    <InternalsVisibleTo Include="OficinaMecanica.Execucao.Integration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- MassTransit fixado em 8.5.12 (a 9.x e comercial): versao exata, nunca faixa. -->
     <PackageReference Include="MassTransit" Version="8.5.12" />
     <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.12" />

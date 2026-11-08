@@ -7,7 +7,11 @@ namespace OficinaMecanica.Execucao.API.Health;
 // HTTP em 200. Escrevo so a descricao de cada check, nunca a excecao, que traz host e detalhes de conexao.
 public static class ProntidaoResponseWriter
 {
-    private static readonly JsonSerializerOptions Opcoes = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions Opcoes = new(JsonSerializerDefaults.Web)
+    {
+        // Mantenho os acentos das descricoes em portugues legiveis (o padrao os escapa em hexadecimal); e JSON puro, nunca HTML.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     public static Task EscreverAsync(HttpContext context, HealthReport relatorio)
     {

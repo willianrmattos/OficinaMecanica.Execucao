@@ -20,7 +20,9 @@ public sealed class MongoHealthCheck(IMongoDatabase banco) : IHealthCheck
             await banco.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: limite.Token);
             return HealthCheckResult.Healthy();
         }
-        catch (Exception ex)
+        // Quando e o chamador que cancela (requisicao abortada), a excecao sobe: virar Unhealthy aqui gravaria um 503 falso
+        // no HealthCheckComCache. Estouro do limite proprio de 3 s, ou qualquer falha do banco, continua Unhealthy.
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             return HealthCheckResult.Unhealthy("MongoDB indisponível.", ex);
         }
