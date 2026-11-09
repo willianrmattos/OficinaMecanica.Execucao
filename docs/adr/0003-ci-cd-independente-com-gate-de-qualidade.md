@@ -120,8 +120,10 @@ para o resultado nao depender de onde foi gerado.
 
 **Ruleset versionado e `Quality` obrigatorio.** `.github/rulesets/protect-main-release.json` replica a protecao dos demais
 repositorios (`main` e `release`: sem delete nem force-push, PR obrigatorio) e exige os checks `Build & Test` e `Quality`;
-`scripts/aplicar-ruleset.sh` cria/atualiza o ruleset via `gh api` e so roda na publicacao. O `testar-scripts.sh` confere que os
-contextos exigidos pelo ruleset sao o `name` de jobs do `ci.yml`.
+nao ha script para aplica-lo: o JSON e a entrada direta da GitHub CLI (`gh api --method POST
+repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json`), executada manualmente
+na publicacao, depois do primeiro CI. O `testar-scripts.sh` confere que os contextos exigidos pelo ruleset sao o `name` de jobs
+do `ci.yml`.
 
 **Testes de infraestrutura no mesmo job.** Os testes `Category=Infra` rodam como steps do `Build & Test`, nao num job
 `Infra Tests` proprio. Desvio consciente do desenho "job separado" do plano: a cobertura mesclada e o gate precisam dos

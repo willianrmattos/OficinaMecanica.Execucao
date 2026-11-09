@@ -15,7 +15,7 @@ compilacao com outro repositorio e nenhum acesso ao banco de outro servico.
 Estado atual: Domain, Application, Infrastructure (MongoDB + MassTransit/RabbitMQ),
 API, Dockerfile, docker-compose, testes (incluindo Testcontainers) e o CI/CD
 (`.github/`), os manifests (`k8s/execucao/`), a protecao de branch versionada e os
-scripts de `scripts/` prontos. O `README.md` e o `docs/cobertura.md` estao prontos; falta o teste real no Atlas M0
+scripts de `scripts/` prontos. O `README.md` e o `docs/relatorios/cobertura.md` estao prontos; falta o teste real no Atlas M0
 (precisa de credenciais do usuario). O repositorio ainda nao existe no GitHub: o CI/CD foi
 validado so localmente (`actionlint`, `kubeconform`, `docker build`, execucao da imagem
 contra MongoDB e RabbitMQ reais, execucao dos scripts e do `ci-local.sh`); a primeira
@@ -50,10 +50,11 @@ tests/
   OficinaMecanica.Execucao.Tests.Common/    # builders Bogus (OrdemDeProducaoBuilder etc.) e RelogioFixo
 docs/adr/                                    # 0001 MongoDB Atlas, 0002 outbox MongoDB do MassTransit + Unit of Work, 0003 CI/CD
 docs/openapi.json                            # contrato OpenAPI versionado (o CI falha se estiver desatualizado)
+docs/relatorios/                             # cobertura.md (evidencia de cobertura: medicao, exclusoes, como regenerar)
 .github/                                     # workflows/ci.yml, rulesets/protect-main-release.json, dependabot.yml, PULL_REQUEST_TEMPLATE.md
 k8s/execucao/                                # deployment, service, ingress, hpa, secret-provider-class
 scripts/                                     # cobertura.sh, verificar-cobertura.sh, verificar-masstransit.sh, verificar-workflow.sh,
-                                             # exportar-swagger.sh, validar-k8s.sh, ci-local.sh, aplicar-ruleset.sh e testar-scripts.sh
+                                             # exportar-swagger.sh, validar-k8s.sh, ci-local.sh e testar-scripts.sh
                                              # (os testes de todos eles: casos de falha + mutantes)
 Dockerfile, docker-compose.yml, .env.example, .dockerignore, coverage.runsettings
 dotnet-tools.json                            # ReportGenerator (merge de cobertura) e Swashbuckle CLI (OpenAPI)
@@ -406,10 +407,9 @@ nao as le.
 | `verificar-cobertura.sh <Summary.txt> [min]` | o gate: calcula o percentual de `Covered lines`/`Coverable lines` (inteiros, nao o `Line coverage` arredondado) e falha (exit 1) abaixo do minimo; vale para o numero "com exclusoes" |
 | `verificar-masstransit.sh [alvo]` / `--entrada <arquivo>` | falha se qualquer pacote `MassTransit*` (inclui `MassTransit.MongoDb`), direto ou transitivo, resolver para major diferente de 8; `--entrada` analisa uma saida ja capturada de `dotnet list package` (sem restore) |
 | `verificar-workflow.sh [ci.yml]` | guarda a separacao de privilegios do workflow: job que declara `id-token` so pode executar `actions/*` e `azure/*` (as de terceiros ficam no `scan-image`, sem `id-token`); `id-token` no nivel do workflow tambem reprova (exit 1; 2 se o arquivo nao tem jobs) |
-| `testar-scripts.sh [--sem-mutantes]` | testa o caminho de FALHA de TODOS os scripts de CI com entradas sinteticas (72 casos) e planta defeitos em copias dos scripts exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Cobre: o gate e o guardrail isolados; o valor do gate no CI (o `ci.yml` exporta `COBERTURA_MINIMA: "80"`, com mutante 80 -> 10); o verificador do workflow; o **`cobertura.sh relatorio` de ponta a ponta** sobre um OpenCover sintetico (79% reprova, 81% aprova, `Program.cs` e `DependencyInjection.cs` fora do numero do gate, cada filtro de exclusao com seu mutante, o aviso de `[ExcludeFromCodeCoverage]` com a contagem no resumo, `COBERTURA_MINIMA`, fase invalida, sem relatorios), o que prova que o gate esta LIGADO ao relatorio (um mutante apaga a chamada); `validar-k8s.sh` (diretorio inexistente, campo desconhecido reprova no `-strict`, CRD ignorado; precisa de Docker, pulado com aviso sem ele); `exportar-swagger.sh --verificar` com um `dotnet` de mentira no `PATH` (em dia aprova, divergente e ausente reprovam, normalizacao de CRLF e `\r\n`); `--x` em `exportar-swagger.sh` e `ci-local.sh` (exit 2); e que `ci.yml` e `ci-local.sh` chamam os mesmos passos. Tudo que escreve roda numa copia temporaria (sandbox), nunca em `TestResults/`, `artifacts/` ou `docs/` do repositorio. Roda no `Build & Test` e no `ci-local.sh`; leva ~2,5 a 3 min (medido: de 2 min 39 s a 3 min 1 s, conforme a carga da maquina; o peso e o ReportGenerator e o kubeconform em Docker) |
+| `testar-scripts.sh [--sem-mutantes]` | testa o caminho de FALHA de TODOS os scripts de CI com entradas sinteticas (72 casos) e planta defeitos em copias dos scripts exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Cobre: o gate e o guardrail isolados; o valor do gate no CI (o `ci.yml` exporta `COBERTURA_MINIMA: "80"`, com mutante 80 -> 10); o verificador do workflow; o **`cobertura.sh relatorio` de ponta a ponta** sobre um OpenCover sintetico (79% reprova, 81% aprova, `Program.cs` e `DependencyInjection.cs` fora do numero do gate, cada filtro de exclusao com seu mutante, o aviso de `[ExcludeFromCodeCoverage]` com a contagem no resumo, `COBERTURA_MINIMA`, fase invalida, sem relatorios), o que prova que o gate esta LIGADO ao relatorio (um mutante apaga a chamada); `validar-k8s.sh` (diretorio inexistente, campo desconhecido reprova no `-strict`, CRD ignorado; precisa de Docker, pulado com aviso sem ele); `exportar-swagger.sh --verificar` com um `dotnet` de mentira no `PATH` (em dia aprova, divergente e ausente reprovam, normalizacao de CRLF e `\r\n`); `--x` em `exportar-swagger.sh` e `ci-local.sh` (exit 2); que os contextos exigidos pelo ruleset versionado (`Build & Test` e `Quality`) sao o `name` de jobs do `ci.yml`; e que `ci.yml` e `ci-local.sh` chamam os mesmos passos. Tudo que escreve roda numa copia temporaria (sandbox), nunca em `TestResults/`, `artifacts/` ou `docs/` do repositorio. Roda no `Build & Test` e no `ci-local.sh`; leva ~2,5 a 3 min (medido: de 2 min 39 s a 3 min 1 s, conforme a carga da maquina; o peso e o ReportGenerator e o kubeconform em Docker) |
 | `exportar-swagger.sh [--verificar] [--sem-build]` | `swagger tofile` (ferramenta fixada em `dotnet-tools.json`) para `docs/openapi.json`; com `--verificar` gera em `artifacts/openapi.json` e falha se o versionado difere |
 | `validar-k8s.sh` | renderiza `${IMAGE}` e valida `k8s/execucao/` com `kubeconform -strict` (Docker; o CRD do SecretProviderClass e ignorado) |
-| `aplicar-ruleset.sh [owner/repo] [--dry-run]` | cria/atualiza o ruleset via `gh api`; **so roda na publicacao** |
 
 - O `swagger tofile` executa `Program.Main` e ESPERA o host subir, e a partida cria os indices no MongoDB: o `exportar-swagger.sh` sobe um
   `mongod` descartavel em Docker (`mongo:7.0.45`, porta aleatoria em `127.0.0.1`, removido ao sair) ou usa `SWAGGER_MONGO_URI`, e roda a API
@@ -418,7 +418,9 @@ nao as le.
   documento gerado no Linux e identico ao do Windows). `.gitattributes` fixa `docs/openapi.json` e `*.sh` em LF.
 - **Protecao de branch**: `.github/rulesets/protect-main-release.json` (alvo `main` e `release`; `deletion`, `non_fast_forward`,
   `pull_request` com 0 aprovacoes e merge/squash/rebase, `required_status_checks` com `Build & Test` e `Quality`). Replica o ruleset dos
-  outros repositorios (aqui sem acesso ao GitHub para comparar: confirmar na publicacao).
+  outros repositorios (aqui sem acesso ao GitHub para comparar: confirmar na publicacao). Nao ha script para aplica-lo: o JSON e a entrada
+  direta da GitHub CLI, executada manualmente na publicacao, depois do primeiro CI (o repositorio ainda nao existe, entao e uma criacao):
+  `gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json`.
 - **Dependabot**: nuget, github-actions e docker, semanal; ignora major de `MassTransit*` (9.x e comercial), de `MongoDB.Driver*` (fica na
   versao do `MassTransit.MongoDb 8.5.12`) e das imagens base `dotnet/aspnet`/`dotnet/sdk`.
 
@@ -459,7 +461,7 @@ quebrados numa copia fora do repositorio), guardrail reprovando uma copia com `M
 
 **Clonar para outro servico (OS Service)**: trocar o bloco `env:` do `ci.yml`; os nomes de projeto/DLL no topo de `exportar-swagger.sh` (e o
 bloco do MongoDB, se o servico nao precisar de banco na partida), os projetos e filtros de `cobertura.sh` e `coverage.runsettings`,
-`K8S_DIR`/imagem em `validar-k8s.sh`, o repo padrao do `aplicar-ruleset.sh`; os nomes, labels e a lista de secrets dos manifests; o
+`K8S_DIR`/imagem em `validar-k8s.sh`, o `owner/repo` do comando `gh api` do ruleset; os nomes, labels e a lista de secrets dos manifests; o
 MassTransit/Mongo/EF do guardrail e do Dependabot conforme o servico (servico com EF precisa do passo de migration no deploy).
 
 **`[ExcludeFromCodeCoverage]` e proibido sem ADR**: o coverlet o honra (`coverage.runsettings`) e o codigo marcado some, em silencio, das duas
@@ -470,7 +472,9 @@ medicoes (nem entra no denominador); `cobertura.sh` lista as ocorrencias em `src
 
 **Fica para a publicacao**: criar o repositorio `willianrmattos/OficinaMecanica.Execucao` e empurrar; preencher `execucao_github_repo_id` no
 `OficinaMecanica.Infra` (aplicar) e configurar as variaveis OIDC; criar o secret `SONAR_TOKEN` e as variaveis do Sonar (e o projeto no
-SonarCloud); rodar uma vez o CI para os checks existirem e entao `bash scripts/aplicar-ruleset.sh`; cumprir o item BLOQUEANTE acima (actions
+SonarCloud); rodar uma vez o CI para os checks existirem e entao criar o ruleset com
+`gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json` (o job `Quality` e check
+obrigatorio e exige o `SONAR_TOKEN` e as variaveis do Sonar: sem eles falha e, com o ruleset ativo, todo PR fica bloqueado); cumprir o item BLOQUEANTE acima (actions
 de terceiros por sha completo, conferindo antes as versoes de `aquasecurity/trivy-action` e `dorny/test-reporter`); confirmar a premissa da
 APIM (concatenacao do path do backend `/execucao`); `kubectl describe node` com folga de CPU antes do primeiro deploy; confirmar que o egress do AKS esta na
 allowlist do Atlas e que o secret `execucao-mongo-connection-string` ja existe no Key Vault (`OficinaMecanica.Banco` aplicado antes).

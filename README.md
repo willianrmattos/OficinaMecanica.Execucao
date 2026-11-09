@@ -157,7 +157,7 @@ sequenceDiagram
 | Validado localmente (sem GitHub e sem Azure) | So existe depois da publicacao |
 |---|---|
 | Compilacao em Release e 661 testes passando, inclusive os de infraestrutura com MongoDB (replica set) e RabbitMQ reais em containers | Repositorio no GitHub e qualquer execucao real do workflow `CI` |
-| Cobertura de linhas de 99,42% (gate de 80%), ver [docs/cobertura.md](docs/cobertura.md) | Analise no SonarCloud e o Quality Gate |
+| Cobertura de linhas de 99,42% (gate de 80%), ver [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md) | Analise no SonarCloud e o Quality Gate |
 | Imagem Docker construida e executada como usuario nao-root, com sistema de arquivos somente leitura, contra MongoDB e RabbitMQ reais | Scan Trivy no pipeline, imagem no ACR, deploy no AKS |
 | `docker compose` completo, `actionlint` e `shellcheck` sem achados, manifests validados com `kubeconform -strict` | Identidade OIDC deste repositorio, rota `execucaoserver` na APIM, ruleset de branch no GitHub |
 | Scripts de CI testados (72 casos de falha e 31 mutantes), OpenAPI gerado e conferido, `scripts/ci-local.sh` completo | Cluster MongoDB Atlas M0 (o Terraform do `OficinaMecanica.Banco` nao foi aplicado): **a combinacao transacao + consumer nunca foi testada no Atlas** |
@@ -562,7 +562,7 @@ completo.** E exatamente o desenho da Execucao:
 
 ### O que a Saga faz com a Execucao
 
-Extraido da [maquina de estados da Saga](../OficinaMecanica/docs/saga-maquina-de-estados.puml):
+Extraido da [maquina de estados da Saga](../OficinaMecanica/docs/diagramas/saga-maquina-de-estados.puml):
 
 | Momento na Saga | Mensagem | Reacao da Execucao |
 |---|---|---|
@@ -582,7 +582,7 @@ e circuit breaker, e cai no ultimo estado conhecido da Saga se a Execucao estive
 indisponivel (ver o [ADR 0006 do OS Service](../OficinaMecanica/docs/adr/0006-quebras-de-api-e-comunicacao-sincrona-x-assincrona.md)).
 A regra pratica: escrita entre servicos e sempre assincrona; leitura entre servicos
 pode ser sincrona so se tiver degradacao definida. Documento completo da Saga:
-[docs/saga-maquina-de-estados.puml](../OficinaMecanica/docs/saga-maquina-de-estados.puml).
+[docs/saga-maquina-de-estados.puml](../OficinaMecanica/docs/diagramas/saga-maquina-de-estados.puml).
 
 ---
 
@@ -850,7 +850,7 @@ que dizem o cenario, e nao como `.feature`.
   nao pode passar como 80%.
 - **Ultima medicao** (2026-11-08, `bash scripts/cobertura.sh`): **99,42%** com exclusoes
   (1718 de 1728 linhas) e 99,42% bruto (1899 de 1910). Detalhes, exclusoes e como regenerar:
-  [docs/cobertura.md](docs/cobertura.md).
+  [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md).
 - **SonarCloud** com Quality Gate bloqueante no job `Quality`, usando a mesma lista de
   exclusoes de cobertura. **Ainda nao rodou**: depende da publicacao.
 - **Os proprios gates sao testados** (`scripts/testar-scripts.sh`): 72 casos de falha
@@ -906,8 +906,10 @@ banco passa pelo runner do GitHub.
 [.github/rulesets/protect-main-release.json](.github/rulesets/protect-main-release.json)
 protege `main` e `release`: sem exclusao nem force-push, PR obrigatorio e os checks
 `Build & Test` e `Quality` obrigatorios (os mesmos nomes em todos os repositorios do
-ecossistema). `bash scripts/aplicar-ruleset.sh [owner/repo] [--dry-run]` cria ou
-atualiza o ruleset via `gh api`; **so roda na publicacao**. Ha tambem um
+ecossistema). Nao ha script para aplica-lo: o JSON e a entrada direta da GitHub CLI
+(`gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json`),
+executada manualmente **so na publicacao**, depois do primeiro CI (passo 7 da
+[secao 10](#10-publicacao-ainda-nao-executada)). Ha tambem um
 [template de PR](.github/PULL_REQUEST_TEMPLATE.md) e o
 [Dependabot](.github/dependabot.yml) semanal (NuGet, GitHub Actions e Docker; ignora
 o major do `MassTransit*`, do `MongoDB.Driver*` e das imagens base do .NET).
@@ -1083,7 +1085,7 @@ Em outros repositorios do ecossistema (leitura complementar):
 | **Conta Azure** com os recursos do `OficinaMecanica.Infra` aplicados | AKS (`aksfiap`), ACR (`acrfiap`), Key Vault (`kvfiap`), APIM, RabbitMQ no AKS (namespace `messaging`) e os segredos `rabbitmq-username` e `rabbitmq-password`. Ordem entre repositorios: **Banco -> Infra -> deploy dos servicos** (ver o [README do Infra](../OficinaMecanica.Infra/README.md#microsservicos-billing-execucao-e-rabbitmq)) |
 | **SonarCloud** | Organizacao e projeto criados; variaveis do repositorio `SONAR_PROJECT_KEY` e `SONAR_ORGANIZATION`; secret `SONAR_TOKEN` (tambem em Settings > Secrets > **Dependabot**, senao os PRs do Dependabot reprovam em `Quality`) |
 | **OIDC (Azure)** | Variaveis do repositorio `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` e `AZURE_SUBSCRIPTION_ID` |
-| GitHub CLI (`gh`) autenticada | Com permissao de administracao no repositorio (para o ruleset) |
+| GitHub CLI (`gh`) autenticada | Com permissao de administracao no repositorio (para criar o ruleset com `gh api`) |
 
 ### Passos, na ordem
 
@@ -1139,14 +1141,19 @@ Todos **ainda nao executados**.
    inicial, sem workflow: nao dispara nada). Depois, empurrar `feature/microsservicos`
    para o `origin` e abrir o PR **para `release`**: o `CI` roda pela primeira vez
    (`Build & Test` e `Quality`; PR nao toca o Azure nem publica imagem).
-7. [ ] **Aplicar o ruleset**, depois que o CI rodou ao menos uma vez (o GitHub so
+7. [ ] **Criar o ruleset**, depois que o CI rodou ao menos uma vez (o GitHub so
    oferece como obrigatorio um check que ja apareceu; com o ruleset ativo, push direto
-   em `main`/`release` passa a ser recusado):
+   em `main`/`release` passa a ser recusado). O repositorio acabou de ser criado, entao
+   e uma criacao (`POST`), com o JSON versionado como entrada:
 
    ```bash
-   bash scripts/aplicar-ruleset.sh --dry-run     # confere o que sera feito
-   bash scripts/aplicar-ruleset.sh               # cria ou atualiza o ruleset
+   gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets \
+     --input .github/rulesets/protect-main-release.json
    ```
+
+   Atencao: o ruleset exige o check `Quality`, e esse job so passa com o secret
+   `SONAR_TOKEN` e as variaveis do SonarCloud (passo 5); sem eles o `Quality` falha e, com
+   o ruleset ativo, todo PR fica bloqueado.
 
 8. [ ] **Antes do primeiro deploy**, conferir: folga de CPU do no
    (`kubectl describe node`); o IP de saida do AKS na allowlist do Atlas; o secret
@@ -1160,6 +1167,6 @@ Todos **ainda nao executados**.
 10. [ ] **PR de `release` para `main`** (o merge e feito pelo mantenedor). O `push` em
     `main` repete o pipeline de publicacao e tambem grava a tag `:latest` da imagem.
 11. [ ] **Pos-publicacao:** preencher o badge e o link do SonarCloud em
-    [docs/cobertura.md](docs/cobertura.md); confirmar a premissa de path da APIM
+    [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md); confirmar a premissa de path da APIM
     chamando `/execucaoserver/health`; apos aplicar o Infra, confirmar que a policy de la
     devolve 404 para `/health/ready` e `/metrics` na rota publica; criar o dashboard e os alertas.
