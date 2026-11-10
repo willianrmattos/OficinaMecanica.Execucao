@@ -973,7 +973,7 @@ Em outros repositorios do ecossistema (leitura complementar):
   a tag seja movida depois, mas nao prova que o commit de hoje e confiavel. O
   Dependabot de `github-actions` propoe as atualizacoes mantendo o formato
   `@sha # versao`. O Trivy estava referenciado como `0.28.0`, tag que nao existe no
-  repositorio da action; o pin aponta para a `v0.28.0`. Decisao registrada no
+  repositorio da action; o pin aponta hoje para a `v0.36.0`: a `v0.28.0` chama internamente `setup-trivy@v0.2.1`, tag que deixou de existir, e a `v0.36.0` fixa as actions internas por SHA. Decisao registrada no
   [ADR 0003](docs/adr/0003-ci-cd-independente-com-gate-de-qualidade.md).
 
 **Nunca verificado em ambiente real**

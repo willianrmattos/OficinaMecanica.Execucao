@@ -470,7 +470,7 @@ medicoes (nem entra no denominador); `cobertura.sh` lista as ocorrencias em `src
 **Actions fixadas por SHA (2026-11-09)**: todas as actions do `ci.yml` (`actions/*`, `azure/*`, `docker/*`, `aquasecurity/trivy-action`, `dorny/test-reporter`) usam
 `uses: <action>@<sha completo> # <versao>`, registrado no ADR 0003. O SHA veio da tag que o workflow usava, resolvida no dia, e o conteudo do commit nao foi auditado (o pin
 impede mover a tag depois, nao prova que o commit e confiavel); o Dependabot (`github-actions`) propoe as atualizacoes no mesmo formato. O Trivy estava como `0.28.0`, tag que
-nao existe no repositorio da action; o pin aponta para a `v0.28.0`.
+nao existe no repositorio da action; o pin aponta hoje para a `v0.36.0`: a `v0.28.0` chama internamente `setup-trivy@v0.2.1`, tag que deixou de existir, e a `v0.36.0` fixa as actions internas por SHA.
 
 **Fica para a publicacao**: criar o repositorio `willianrmattos/OficinaMecanica.Execucao` e empurrar; preencher `execucao_github_repo_id` no
 `OficinaMecanica.Infra` (aplicar) e configurar as variaveis OIDC; criar o secret `SONAR_TOKEN` e as variaveis do Sonar (e o projeto no
