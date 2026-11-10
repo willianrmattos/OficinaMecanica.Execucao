@@ -963,13 +963,18 @@ Em outros repositorios do ecossistema (leitura complementar):
 
 ## 9. Limitacoes conhecidas e pendencias
 
-**Bloqueante antes do primeiro push real**
+**Pipeline**
 
-- **Fixar as actions de terceiros por SHA.** Hoje `docker/*`, `aquasecurity/trivy-action`,
-  `dorny/test-reporter`, `azure/login` e `azure/aks-set-context` estao por **tag de
-  versao**, que e mutavel. Antes da publicacao devem ser trocadas pelo SHA **completo**
-  de commit de uma versao verificada (com a tag em comentario) e o ADR 0003 atualizado;
-  conferir antes as versoes de `aquasecurity/trivy-action` e `dorny/test-reporter`.
+- **Actions fixadas por SHA completo (feito em 2026-11-09), sem auditoria do
+  conteudo.** Todas as actions do `ci.yml` (`actions/*`, `azure/*`, `docker/*`,
+  `aquasecurity/trivy-action`, `dorny/test-reporter`) usam
+  `uses: <action>@<sha completo> # <versao>`. O SHA veio da tag que o workflow usava,
+  resolvida no dia; o conteudo daquele commit nao foi auditado, entao o pin impede que
+  a tag seja movida depois, mas nao prova que o commit de hoje e confiavel. O
+  Dependabot de `github-actions` propoe as atualizacoes mantendo o formato
+  `@sha # versao`. O Trivy estava referenciado como `0.28.0`, tag que nao existe no
+  repositorio da action; o pin aponta para a `v0.28.0`. Decisao registrada no
+  [ADR 0003](docs/adr/0003-ci-cd-independente-com-gate-de-qualidade.md).
 
 **Nunca verificado em ambiente real**
 
@@ -1089,11 +1094,11 @@ Em outros repositorios do ecossistema (leitura complementar):
 
 ### Passos, na ordem
 
-Todos **ainda nao executados**.
+Todos **ainda nao executados**, exceto o passo 1.
 
-1. [ ] **Fixar as actions de terceiros por SHA completo** em
-   `.github/workflows/ci.yml` e registrar no ADR 0003 (item bloqueante da
-   [secao 9](#9-limitacoes-conhecidas-e-pendencias)).
+1. [x] **Actions fixadas por SHA completo** em `.github/workflows/ci.yml`, com a versao
+   num comentario ao lado, registrado no ADR 0003 (feito em 2026-11-09; ver a
+   [secao 9](#9-limitacoes-conhecidas-e-pendencias)). O Dependabot mantem os SHAs.
 2. [ ] **Garantir os recursos de dados e de plataforma**, na ordem: aplicar o
    `OficinaMecanica.Banco` (cluster Atlas, usuario, `aks_egress_ip` na allowlist e o
    secret `execucao-mongo-connection-string` no Key Vault; o primeiro apply e **local**,

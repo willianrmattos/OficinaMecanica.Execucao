@@ -373,7 +373,7 @@ Integration 291 (238 sem Docker + 53 `Category=Infra`), 661 no total.
 
 Decisoes no ADR 0003. Pipeline proprio em `.github/workflows/ci.yml` (nome `CI`; gatilhos push/PR em `main`/`release` e
 `workflow_dispatch`; `concurrency` por ref, `cancel-in-progress` so em PR; `permissions` minimas, `id-token: write` so nos jobs
-de imagem/deploy). Todas as actions com versao pinada por **tag de major/minor** (mutavel: pinar por SHA e BLOQUEANTE da publicacao, ver abaixo). O bloco `env:` do topo do `ci.yml` concentra o que muda de um servico
+de imagem/deploy). Todas as actions (de terceiros e do GitHub) fixadas por **SHA completo de commit**, com a versao num comentario ao lado (`uses: <action>@<sha> # <versao>`; feito em 2026-11-09, ver abaixo). O bloco `env:` do topo do `ci.yml` concentra o que muda de um servico
 para outro (ACR, imagem, AKS, pastas, solucao). Cinco jobs encadeados. **Os nomes dos jobs/checks (`Build & Test`, `Quality`) sao identicos aos dos outros
 repositorios** porque o ruleset exige o mesmo nome em todos.
 
@@ -467,15 +467,16 @@ MassTransit/Mongo/EF do guardrail e do Dependabot conforme o servico (servico co
 **`[ExcludeFromCodeCoverage]` e proibido sem ADR**: o coverlet o honra (`coverage.runsettings`) e o codigo marcado some, em silencio, das duas
 medicoes (nem entra no denominador); `cobertura.sh` lista as ocorrencias em `src/` no relatorio e no Job Summary (hoje nenhuma).
 
-**BLOQUEANTE antes do primeiro push real**: fixar as actions de terceiros (`docker/*`, `aquasecurity/trivy-action`, `dorny/test-reporter`,
-`azure/login`, `azure/aks-set-context`) por sha COMPLETO de commit verificado (tag e mutavel), registrado no ADR 0003; hoje estao por tag.
+**Actions fixadas por SHA (2026-11-09)**: todas as actions do `ci.yml` (`actions/*`, `azure/*`, `docker/*`, `aquasecurity/trivy-action`, `dorny/test-reporter`) usam
+`uses: <action>@<sha completo> # <versao>`, registrado no ADR 0003. O SHA veio da tag que o workflow usava, resolvida no dia, e o conteudo do commit nao foi auditado (o pin
+impede mover a tag depois, nao prova que o commit e confiavel); o Dependabot (`github-actions`) propoe as atualizacoes no mesmo formato. O Trivy estava como `0.28.0`, tag que
+nao existe no repositorio da action; o pin aponta para a `v0.28.0`.
 
 **Fica para a publicacao**: criar o repositorio `willianrmattos/OficinaMecanica.Execucao` e empurrar; preencher `execucao_github_repo_id` no
 `OficinaMecanica.Infra` (aplicar) e configurar as variaveis OIDC; criar o secret `SONAR_TOKEN` e as variaveis do Sonar (e o projeto no
 SonarCloud); rodar uma vez o CI para os checks existirem e entao criar o ruleset com
 `gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json` (o job `Quality` e check
-obrigatorio e exige o `SONAR_TOKEN` e as variaveis do Sonar: sem eles falha e, com o ruleset ativo, todo PR fica bloqueado); cumprir o item BLOQUEANTE acima (actions
-de terceiros por sha completo, conferindo antes as versoes de `aquasecurity/trivy-action` e `dorny/test-reporter`); confirmar a premissa da
+obrigatorio e exige o `SONAR_TOKEN` e as variaveis do Sonar: sem eles falha e, com o ruleset ativo, todo PR fica bloqueado); confirmar a premissa da
 APIM (concatenacao do path do backend `/execucao`); `kubectl describe node` com folga de CPU antes do primeiro deploy; confirmar que o egress do AKS esta na
 allowlist do Atlas e que o secret `execucao-mongo-connection-string` ja existe no Key Vault (`OficinaMecanica.Banco` aplicado antes).
 
@@ -539,7 +540,7 @@ de vulnerabilidade High.
 
 - Teste real de transacao + consumer no Atlas M0 (credenciais do usuario); fallback do spike descrito no ADR 0001
 - Decisao pendente no `OficinaMecanica.Banco` (README de la, "Decisao pendente: como o CI alcanca a API do Atlas"): sem ela o CI do Banco recebe 403 do Atlas, o job `validate` trava e o cluster que a Execucao usa nao e provisionado pelo CI
-- Publicacao do CI/CD (repositorio no GitHub, OIDC, SonarCloud, ruleset, **sha das actions de terceiros**): lista em "CI/CD e Kubernetes"; o dashboard fica para a documentacao final
+- Publicacao do CI/CD (repositorio no GitHub, OIDC, SonarCloud, ruleset): lista em "CI/CD e Kubernetes"; o dashboard fica para a documentacao final
 - Bloqueio na APIM (`OficinaMecanica.Infra`): `/health/ready` e `/metrics` sao anonimos e a rota `execucaoserver` da APIM repassa qualquer path. O custo de
   `/health/ready` ja esta limitado pelo cache de 5 s (no maximo 1 conexao AMQP e 1 ping no Atlas por janela, qualquer que seja a taxa de
   requisicoes); o cache nao esconde o endpoint nem o `/metrics`, entao o bloqueio dos dois paths na rota publica (policy `return-response`

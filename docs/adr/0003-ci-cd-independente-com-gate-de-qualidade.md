@@ -82,18 +82,22 @@ organizacao vem de variaveis do repositorio (`vars.SONAR_PROJECT_KEY`, `vars.SON
 mensagem clara; em PR de fork (sem acesso a secrets) o job e pulado.
 
 **Trivy antes do push, em job sem `id-token`.** As actions que constroem e escaneam a imagem (`docker/*`,
-`aquasecurity/trivy-action`) sao de terceiros e referenciadas por tag, que e mutavel. Num job com `id-token: write` qualquer
+`aquasecurity/trivy-action`) sao de terceiros e, mesmo fixadas por SHA (decisao abaixo), o codigo delas nao foi auditado. Num job com `id-token: write` qualquer
 step pode pedir um token OIDC com `AcrPush` e `AKS Cluster Admin`; por isso o `scan-image` so le o repositorio e o job de push
 (que tem `id-token: write`) so executa `actions/download-artifact`, `azure/login` e comandos `docker`. O scan reprova
 `HIGH`/`CRITICAL` com correcao disponivel (`ignore-unfixed`); a imagem escaneada viaja como artifact (`docker save`) e o job de
 push a carrega (`docker load`) e empurra a MESMA imagem, sem rebuild. A tag de deploy e sempre o sha do commit; `:latest` so
 sai da `main`, para um push em `release` nao sobrescrever o que esta em producao.
 
-**Fixar as actions de terceiros por sha e BLOQUEANTE antes do primeiro push real.** Hoje as actions estao por tag de
-versao. Antes de o repositorio existir no GitHub e de qualquer execucao real, `docker/setup-buildx-action`,
-`docker/build-push-action`, `aquasecurity/trivy-action`, `dorny/test-reporter`, `azure/login` e `azure/aks-set-context` devem
-ser trocadas pelo sha COMPLETO de commit de uma versao verificada (comentario com a tag ao lado); o Dependabot
-(`github-actions`) passa a propor as atualizacoes. As `actions/*` do proprio GitHub ficam em tag de major.
+**Actions por SHA (aplicado em 2026-11-09).** Todas as actions do `ci.yml`, de terceiros (`docker/setup-buildx-action`,
+`docker/build-push-action`, `aquasecurity/trivy-action`, `dorny/test-reporter`) e do GitHub/Microsoft (`actions/*`, `azure/login`,
+`azure/aks-set-context`), estao fixadas pelo SHA completo do commit, com a versao num comentario ao lado
+(`uses: actions/checkout@<sha> # v4.4.0`). Uma tag e mutavel: quem controla a action pode move-la para outro codigo; o SHA nao.
+O SHA veio da tag que o workflow ja usava, resolvida pela API do GitHub para o commit em que ela apontava no dia, e a versao do
+comentario e a tag semver mais especifica que aponta para o mesmo commit (no `dorny/test-reporter` e `v1`). O pin nao audita o
+conteudo: impede que a tag seja movida depois, mas nao prova que o commit de hoje e confiavel. O Trivy estava referenciado como
+`0.28.0`, tag que nao existe no repositorio da action (a real e `v0.28.0`); o pin aponta para a `v0.28.0`. O Dependabot
+(`github-actions`) propoe as atualizacoes mantendo o formato `@sha # versao`.
 
 **Guardrail do MassTransit.** `scripts/verificar-masstransit.sh` roda `dotnet list package --include-transitive` e falha se
 qualquer pacote `MassTransit*` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.MongoDb`, `MassTransit.Abstractions`),
@@ -183,8 +187,8 @@ a cada `IntervaloDoOutboxEmMs`) e custa ate 90 s para tirar um pod da rotacao.
   passam pela APIM. O cache limita o custo, mas nao esconde o endpoint.
 - O runner do GitHub nao precisa alcancar o Atlas (o deploy nao toca o banco), mas o egress do AKS precisa estar na
   allowlist do Atlas (`OficinaMecanica.Banco`).
-- Antes da publicacao o workflow so foi validado estaticamente e pelos scripts: a primeira execucao real e o momento de fixar as
-  actions de terceiros por sha (ver a decisao acima: bloqueante).
+- Antes da publicacao o workflow so foi validado estaticamente e pelos scripts, e as actions estao fixadas por SHA sem que o
+  conteudo de cada commit fixado tenha sido auditado (ver a decisao "Actions por SHA").
 
 ## Alternativas consideradas
 - **Pipeline unico para todos os servicos**: acopla os repositorios e contraria o requisito de CI/CD independente.
