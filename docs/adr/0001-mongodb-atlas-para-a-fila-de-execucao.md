@@ -3,6 +3,11 @@
 ## Status
 Aceito (comportamento no Atlas M0 ainda nao verificado: ver "Consequencias")
 
+Atualizacao em 2026-11-10: o servico foi publicado e roda no AKS contra o Atlas M0 (`EUROPE_NORTH`). O fluxo feliz da
+Saga passou na nuvem pelo outbox transacional sobre o MongoDB, entao as transacoes multi-documento do M0 foram provadas
+nesse caminho. Estorno por reparo inviavel e cancelamento pelo staff nao foram exercitados na nuvem; o item "Pendente"
+de "Consequencias" fica atendido so em parte. O corpo abaixo e o registro da decisao e nao foi reescrito.
+
 ## Contexto
 O servico de Execucao guarda a producao da oficina: a fila de ordens a diagnosticar, o diagnostico em
 andamento (com apontamentos e laudo), a fila de reparo e o resultado. Cada ordem e lida e alterada quase

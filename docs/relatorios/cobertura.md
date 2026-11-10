@@ -5,7 +5,8 @@ ela e medida, o que fica fora da conta e por que, e como reproduzir o numero.
 Os valores vieram da execucao local de `bash scripts/cobertura.sh` sobre o codigo
 como esta hoje (inclusive os testes do abandono de requisicao pelo cliente e das
 metricas HTTP) e estao registrados no `README.md` e no `CLAUDE.md`; nada aqui foi
-medido pelo CI do GitHub, que ainda nao rodou (o repositorio nao foi publicado).
+medido pelo CI do GitHub. O numero do SonarCloud na `main` do repositorio publicado
+(93,5%) esta na secao "SonarCloud".
 
 ## Medicao
 
@@ -107,8 +108,8 @@ versionado: para ve-lo, gere de novo):
 
 ## Onde o relatorio aparece no CI
 
-**Depois da publicacao** (o workflow ainda nao rodou no GitHub), o job
-**Build & Test** publica estes artefatos de cada execucao:
+Desde a publicacao (2026-11-09/10) o workflow roda no GitHub. O job
+**Build & Test** publica estes artefatos de cada execucao (definidos no `ci.yml`):
 
 - `relatorio-de-cobertura`: os dois relatorios HTML (`report-com-exclusoes` e
   `report-bruto`);
@@ -120,19 +121,25 @@ Alem disso, o resumo de cobertura e escrito no **Job Summary** da execucao.
 
 ## SonarCloud
 
-Badge/link do SonarCloud: **preencher apos a publicacao**.
+O job `Quality` roda desde a publicacao (2026-11-09/10) e o Quality Gate foi aprovado nos
+pipelines de `main`. A cobertura medida pelo SonarCloud na `main` e **93,5%**; o script local
+mede 99,42% (2026-11-08). Os dois numeros vem de ferramentas diferentes e nao foram
+reconciliados neste documento.
 
 | Item | Valor |
 |---|---|
-| Badge | (a preencher apos a publicacao) |
-| Link do projeto no SonarCloud | (a preencher apos a publicacao) |
-| Quality Gate da ultima execucao em `release` | (a preencher apos a publicacao) |
+| Badge | (a preencher com o badge do projeto no SonarCloud) |
+| Link do projeto no SonarCloud | (a preencher com a URL do projeto no SonarCloud) |
+| Quality Gate da ultima execucao em `main` | Aprovado (job `Quality` verde) |
+| Cobertura de linhas no Sonar (`main`) | 93,5% |
 
 ## Limites desta evidencia
 
 - Cobertura de **linhas** nao prova qualidade dos testes: ela mostra o que foi
   executado, nao o que foi verificado. O repositorio complementa com testes de falha
   e de mutacao dos scripts de gate, com testes de infraestrutura contra MongoDB e
-  RabbitMQ reais e com o Quality Gate do SonarCloud (este ultimo ainda nao rodou).
-- Os numeros sao de uma execucao local em 2026-11-08, em Windows com Docker. Ate o
-  primeiro CI real, nao ha medicao em ambiente limpo (runner do GitHub).
+  RabbitMQ reais e com o Quality Gate do SonarCloud.
+- Os numeros das tabelas acima sao de uma execucao local em 2026-11-08, em Windows com
+  Docker. A medicao em ambiente limpo (runner do GitHub) e a que o CI e o SonarCloud
+  produzem a cada execucao; o unico numero do runner registrado aqui e o do Sonar na
+  `main` (93,5%).
