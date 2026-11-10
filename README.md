@@ -10,13 +10,17 @@ E um microsservico .NET 8 com **banco proprio NoSQL (MongoDB Atlas)**. Fala com 
 resto do ecossistema **somente por mensagens** (RabbitMQ + MassTransit 8.5.12) e
 expoe uma API HTTP para o mecanico operar a fila.
 
-> **Estado da publicacao: nada foi publicado.** O repositorio ainda nao existe no
-> GitHub, o workflow de CI nunca rodou no GitHub, nenhuma imagem foi para o
-> registry, nenhum deploy foi feito e o servico nunca falou com um cluster
-> MongoDB Atlas real. Tudo o que esta descrito aqui como "validado" foi validado
-> **localmente** (ver [Estado atual](#estado-atual)). A secao
-> [10. Publicacao](#10-publicacao-ainda-nao-executada) lista, em ordem, o que
-> falta fazer.
+> **Estado da publicacao: publicado e no ar (2026-11-09/10).** Os PRs #1 a #3 deste
+> repositorio foram mergeados em `release` e em `main`, os pipelines de `main`
+> ficaram verdes (Build & Test, Quality, Scan Image, Build & Push no ACR e Deploy
+> to AKS) e o servico roda no AKS (`aksfiap`) com 2 replicas, falando com o
+> MongoDB Atlas M0 e com o RabbitMQ do cluster. A validacao na nuvem (Saga ponta a
+> ponta pelo APIM) esta na secao
+> [10. Publicacao e validacao no AKS](#10-publicacao-e-validacao-no-aks); o que
+> ainda nao foi exercitado na nuvem e as pendencias estao la e na
+> [secao 9](#9-limitacoes-conhecidas-e-pendencias). O que e descrito como
+> "validado localmente" ([Estado atual](#estado-atual)) e o que foi provado antes
+> da publicacao.
 
 ## Sumario
 
@@ -29,7 +33,7 @@ expoe uma API HTTP para o mecanico operar a fila.
 7. [CI/CD e Kubernetes](#7-cicd-e-kubernetes)
 8. [Decisoes (ADRs)](#8-decisoes-adrs)
 9. [Limitacoes conhecidas e pendencias](#9-limitacoes-conhecidas-e-pendencias)
-10. [Publicacao (ainda nao executada)](#10-publicacao-ainda-nao-executada)
+10. [Publicacao e validacao no AKS](#10-publicacao-e-validacao-no-aks)
 
 Os links para `../OficinaMecanica*` apontam para os repositorios irmaos e so
 funcionam com todos clonados lado a lado, na mesma pasta pai.
@@ -154,13 +158,13 @@ sequenceDiagram
 
 ### Estado atual
 
-| Validado localmente (sem GitHub e sem Azure) | So existe depois da publicacao |
+| Validado localmente (antes da publicacao) | Publicado e validado na nuvem (2026-11-09/10) |
 |---|---|
-| Compilacao em Release e 661 testes passando, inclusive os de infraestrutura com MongoDB (replica set) e RabbitMQ reais em containers | Repositorio no GitHub e qualquer execucao real do workflow `CI` |
-| Cobertura de linhas de 99,42% (gate de 80%), ver [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md) | Analise no SonarCloud e o Quality Gate |
-| Imagem Docker construida e executada como usuario nao-root, com sistema de arquivos somente leitura, contra MongoDB e RabbitMQ reais | Scan Trivy no pipeline, imagem no ACR, deploy no AKS |
-| `docker compose` completo, `actionlint` e `shellcheck` sem achados, manifests validados com `kubeconform -strict` | Identidade OIDC deste repositorio, rota `execucaoserver` na APIM, ruleset de branch no GitHub |
-| Scripts de CI testados (72 casos de falha e 31 mutantes), OpenAPI gerado e conferido, `scripts/ci-local.sh` completo | Cluster MongoDB Atlas M0 (o Terraform do `OficinaMecanica.Banco` nao foi aplicado): **a combinacao transacao + consumer nunca foi testada no Atlas** |
+| Compilacao em Release e 661 testes passando, inclusive os de infraestrutura com MongoDB (replica set) e RabbitMQ reais em containers | Repositorio no GitHub (PRs #1 a #3 mergeados em `release` e em `main`) e o workflow `CI` rodando de verdade, com os pipelines de `main` verdes |
+| Cobertura de linhas de 99,42% (gate de 80%), ver [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md) | Analise no SonarCloud (job `Quality`, Quality Gate aprovado na `main`); cobertura de **93,5%** medida pelo Sonar na `main` |
+| Imagem Docker construida e executada como usuario nao-root, com sistema de arquivos somente leitura, contra MongoDB e RabbitMQ reais | Scan Trivy no pipeline, imagem no ACR e deploy no AKS (`aksfiap`, 2 replicas) |
+| `docker compose` completo, `actionlint` e `shellcheck` sem achados, manifests validados com `kubeconform -strict` | Identidade OIDC deste repositorio, rota `execucaoserver` na APIM (`apimfiap`) e ruleset de branch no GitHub |
+| Scripts de CI testados (70 casos de falha e 31 mutantes), OpenAPI gerado e conferido, `scripts/ci-local.sh` completo | Cluster MongoDB Atlas M0 em `EUROPE_NORTH` (Terraform do `OficinaMecanica.Banco`, aplicado so localmente), `/health` e `/health/ready` em 200 no AKS e a Saga ponta a ponta pelo APIM (ver [secao 10](#10-publicacao-e-validacao-no-aks)). Transacoes multi-documento do M0: **so provadas pelo fluxo feliz** |
 
 ---
 
@@ -368,7 +372,7 @@ combinacao falha, medidas no spike que antecedeu o servico e registradas no
 
 | Condicao | Como o servico a atende |
 |---|---|
-| Transacoes exigem **replica set** | Compose e testes usam replica set de 1 no; o Atlas M0 e um replica set de 3 nos (**nao verificado no Atlas real**) |
+| Transacoes exigem **replica set** | Compose e testes usam replica set de 1 no; o Atlas M0 e um replica set de 3 nos (no Atlas real, so o fluxo feliz da Saga na nuvem provou as transacoes multi-documento; ver [secao 10](#10-publicacao-e-validacao-no-aks)) |
 | **Publicar antes do commit** | Regra da Application (`IIntegrationEventPublisher`); publicar depois perderia a mensagem se o processo caisse entre os dois passos |
 | **Retry por fora do filtro do outbox** | `UseMessageRetry` no endpoint, com intervalos exponenciais: uma falha transitoria do proprio outbox (inbox, abertura ou commit da transacao) e retentada em vez de ir para `_error`. No spike, 18 a 20 de 40 duplicatas concorrentes caiam em `_error` sem isso |
 | **Colecoes e indice do inbox criados antes do bus** | `MongoInitializer` registrado antes do MassTransit: criar colecao ou indice (DDL) dentro de uma transacao colide com a primeira mensagem |
@@ -485,7 +489,9 @@ As metricas HTTP do prometheus-net (`http_requests_received_total`,
 que abandonou e os erros mapeados (400, 404, 409, 500) saem com o `code` real. Um
 teste de pipeline (`MetricasHttpTests`) trava essa ordem.
 
-Dashboard e alertas no New Relic **ainda nao foram criados** (ver pendencias).
+Dashboard e alertas no New Relic ja existem (dashboard da Execucao, cuja definicao
+fica fora deste repositorio, e alertas do ecossistema que cobrem 5xx, a fila da
+Execucao e o outbox).
 
 ### 2.8 Idempotencia e compensacoes
 
@@ -852,8 +858,11 @@ que dizem o cenario, e nao como `.feature`.
   (1718 de 1728 linhas) e 99,42% bruto (1899 de 1910). Detalhes, exclusoes e como regenerar:
   [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md).
 - **SonarCloud** com Quality Gate bloqueante no job `Quality`, usando a mesma lista de
-  exclusoes de cobertura. **Ainda nao rodou**: depende da publicacao.
-- **Os proprios gates sao testados** (`scripts/testar-scripts.sh`): 72 casos de falha
+  exclusoes de cobertura. Roda desde a publicacao (2026-11-09/10) e o Quality Gate
+  passou na `main`; a cobertura medida pelo Sonar na `main` e **93,5%**. Os dois numeros
+  (99,42% do script local e 93,5% do Sonar) vem de ferramentas diferentes e nao foram
+  reconciliados aqui.
+- **Os proprios gates sao testados** (`scripts/testar-scripts.sh`): 70 casos de falha
   com entradas sinteticas e 31 mutantes (defeitos plantados em copias dos scripts,
   cada um precisa ser detectado), inclusive a prova de que o gate esta ligado ao
   relatorio.
@@ -868,8 +877,10 @@ Pipeline proprio e independente dos outros servicos em
 [.github/workflows/ci.yml](.github/workflows/ci.yml) (nome `CI`). Roda em `push` e
 `pull_request` para `main` e `release` e sob demanda (`workflow_dispatch`). Decisoes
 no [ADR 0003](docs/adr/0003-ci-cd-independente-com-gate-de-qualidade.md).
-**O workflow nunca rodou no GitHub**: foi validado com `actionlint` e pelos scripts
-que ele chama, que tambem rodam na maquina do desenvolvedor (`scripts/ci-local.sh`).
+O workflow roda no GitHub desde a publicacao (2026-11-09/10): os pipelines de `main`
+ficaram verdes nos cinco jobs. Antes disso ele foi validado com `actionlint` e pelos
+scripts que ele chama, que tambem rodam na maquina do desenvolvedor
+(`scripts/ci-local.sh`).
 
 ### Os cinco jobs
 
@@ -908,8 +919,8 @@ protege `main` e `release`: sem exclusao nem force-push, PR obrigatorio e os che
 `Build & Test` e `Quality` obrigatorios (os mesmos nomes em todos os repositorios do
 ecossistema). Nao ha script para aplica-lo: o JSON e a entrada direta da GitHub CLI
 (`gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json`),
-executada manualmente **so na publicacao**, depois do primeiro CI (passo 7 da
-[secao 10](#10-publicacao-ainda-nao-executada)). Ha tambem um
+executada manualmente na publicacao, depois do primeiro CI (ver
+[secao 10](#10-publicacao-e-validacao-no-aks)). Ha tambem um
 [template de PR](.github/PULL_REQUEST_TEMPLATE.md) e o
 [Dependabot](.github/dependabot.yml) semanal (NuGet, GitHub Actions e Docker; ignora
 o major do `MassTransit*`, do `MongoDB.Driver*` e das imagens base do .NET).
@@ -955,6 +966,7 @@ Em outros repositorios do ecossistema (leitura complementar):
 | [ADR 0005 do OS Service](../OficinaMecanica/docs/adr/0005-contratos-de-mensagem-por-copia-com-golden-json.md) | Contratos de mensagem copiados por servico e travados por golden JSON |
 | [ADR 0006 do OS Service](../OficinaMecanica/docs/adr/0006-quebras-de-api-e-comunicacao-sincrona-x-assincrona.md) | Quando usar comunicacao sincrona e assincrona; consulta sincrona a Execucao |
 | [ADR 0002 do Banco](../OficinaMecanica.Banco/docs/adr/0002-mongodb-atlas-m0-provisionado-por-terraform.md) | Cluster Atlas M0, usuario e secret provisionados por Terraform |
+| [ADR 0004 do Banco](../OficinaMecanica.Banco/docs/adr/0004-atlas-aplicado-so-localmente-fora-do-ci.md) | O Terraform do Atlas (root `atlas/`) e aplicado so localmente, fora do CI |
 | [ADR 0004 do Infra](../OficinaMecanica.Infra/docs/adr/0004-rabbitmq-no-aks-statefulset-com-imagem-oficial.md) | RabbitMQ no AKS como StatefulSet com imagem oficial |
 | [ADR 0006 do Infra](../OficinaMecanica.Infra/docs/adr/0006-modulo-oidc-parametrizado-por-servico-e-criacao-condicional.md) | Modulo OIDC por servico, criado so quando o repositorio existe |
 | [ADR 0007 do Infra](../OficinaMecanica.Infra/docs/adr/0007-bloqueio-de-health-ready-e-metrics-na-apim.md) | Bloqueio de `/health/ready` e `/metrics` na rota publica da APIM |
@@ -962,6 +974,9 @@ Em outros repositorios do ecossistema (leitura complementar):
 ---
 
 ## 9. Limitacoes conhecidas e pendencias
+
+A lista curta das pendencias abertas esta em [Pendencias abertas](#pendencias-abertas),
+no fim da [secao 10](#10-publicacao-e-validacao-no-aks).
 
 **Pipeline**
 
@@ -976,31 +991,45 @@ Em outros repositorios do ecossistema (leitura complementar):
   repositorio da action; o pin aponta hoje para a `v0.36.0`: a `v0.28.0` chama internamente `setup-trivy@v0.2.1`, tag que deixou de existir, e a `v0.36.0` fixa as actions internas por SHA. Decisao registrada no
   [ADR 0003](docs/adr/0003-ci-cd-independente-com-gate-de-qualidade.md).
 
-**Nunca verificado em ambiente real**
+**Ambiente real (verificado em 2026-11-09/10)**
 
 - **Transacao + consumer no Atlas M0.** A pagina oficial de limites do Atlas e
-  silenciosa sobre transacoes multi-documento no M0; ele e um replica set de 3 nos,
-  entao e esperado que funcione, mas so foi testado em MongoDB 7 local. Se o M0 recusar ou estrangular transacoes, o plano B
-  e o do ADR 0001: outbox embutido no documento mais um relay proprio (mais codigo e
-  entrega duplicada sem *lease*).
-- **Cluster Atlas M0 e regiao.** O Terraform do `OficinaMecanica.Banco` nunca foi
-  aplicado; nem toda regiao Azure oferece o M0 (padrao `US_EAST_2`, a confirmar).
-- **Decisao pendente no Banco: como o CI alcanca a API do Atlas.** A Administration API
-  do Atlas exige, por padrao, uma access list de IPs na API key, e o runner do GitHub
-  tem IP variavel. As opcoes (`0.0.0.0/0` na access list da propria API key, desligar o
-  requisito na organizacao ou runner proprio com IP fixo) estao no
-  [README do Banco](../OficinaMecanica.Banco/README.md#decisao-pendente-como-o-ci-alcanca-a-api-do-atlas) e no ADR 0002 de la.
-  Ate decidir, `plan` e `apply` pelo CI do Banco recebem 403, o job `validate` trava e,
-  como o `apply` depende dele, o provisionamento do cluster que a Execucao usa fica
-  bloqueado pelo CI. A decisao e os secrets do Atlas precisam estar prontos antes do
-  merge do Banco em `release`.
-- **Primeira execucao do workflow, Quality Gate, Trivy, deploy e OIDC:** so validados
-  por ferramentas locais.
+  silenciosa sobre transacoes multi-documento no M0 (replica set de 3 nos). Na nuvem,
+  o fluxo feliz da Saga (OS-20261110-95B066) passou pelo outbox transacional do
+  MassTransit sobre o MongoDB do Atlas, entao as transacoes funcionam ao menos nesse
+  caminho. **So o fluxo feliz foi provado**: estorno (`ExecucaoInviavel`) e cancelamento
+  pelo staff nao foram exercitados na nuvem (so em ambiente local, no e2e). Se o M0 recusar ou
+  estrangular transacoes em outro caminho, o plano B e o do ADR 0001: outbox embutido
+  no documento mais um relay proprio (mais codigo e entrega duplicada sem *lease*).
+- **Cluster Atlas M0 e regiao.** O cluster foi criado em `EUROPE_NORTH` pelo Terraform
+  do `OficinaMecanica.Banco` (root `atlas/`), com usuario restrito ao banco `execucao`,
+  access list so com o IP de saida do AKS e a connection string no Key Vault.
+- **O CI nao alcanca o Atlas (decisao encerrada).** A Administration API do Atlas exige
+  uma access list de IPs na API key, o runner do GitHub tem IP variavel e o Atlas recusa
+  `0.0.0.0/0` nessa lista. Por isso o root `atlas/` (state `atlas.tfstate`) e aplicado
+  **so localmente**, por um administrador, e o CI do Banco so roda `fmt` e `validate`
+  nele, sem credenciais: [README do Banco](../OficinaMecanica.Banco/README.md#decisao-o-ci-nao-alcanca-o-atlas)
+  e [ADR 0004 do Banco](../OficinaMecanica.Banco/docs/adr/0004-atlas-aplicado-so-localmente-fora-do-ci.md).
+  Mudar cluster, usuario ou access list exige um `apply` local; nada disso passa pelo
+  pipeline desta Execucao.
+- **Workflow, Quality Gate, Trivy, deploy e OIDC:** rodaram de verdade; os pipelines de
+  `main` ficaram verdes.
 - **Rota da APIM.** A premissa de que a APIM concatena o path do backend (`/execucao`)
-  com o path da operacao nao pode ser provada sem aplicar o Terraform; se falhar, o
-  plano alternativo e reescrever a URL na policy.
-- O **ruleset** replica o dos outros repositorios, mas nao foi possivel comparar com o
-  GitHub: confirmar na publicacao.
+  com o path da operacao foi confirmada: a Saga ponta a ponta foi conduzida pelo APIM e
+  `/health/ready` responde 200 pela rota `execucaoserver`.
+- O **ruleset** (JSON versionado, exige `Build & Test` e `Quality`) esta aplicado neste
+  repositorio.
+
+**Aprendizados da publicacao que viraram regra**
+
+- **Ingress com `use-regex`.** O ingress-nginx trata como expressao regular todos os
+  paths do host, e o catch-all da API captura o `/healthz`; por isso a sonda do load
+  balancer das portas 80 e 443 e TCP (decisao no `OficinaMecanica.Infra`). Este servico
+  usa `use-regex` no prefixo `/execucao(/|$)(.*)`.
+- **Primeira analise da `main` no SonarCloud.** Um projeto novo devolve o gate `NONE` na
+  primeira analise da `main` e o job `Quality` falha; um re-run resolve.
+- **Actions fixadas por SHA** precisam ter as actions internas resolviveis (o caso do
+  `trivy-action`, acima).
 
 **Limites do Atlas M0 (plano gratuito)**
 
@@ -1012,9 +1041,9 @@ Em outros repositorios do ecossistema (leitura complementar):
   spike), o que limita o teto a poucas mensagens por segundo; o intervalo de leitura
   (`Mensageria__IntervaloDoOutboxEmMs`, padrao 1 s) e configuravel.
 - **Backup:** nenhuma rotina de backup ou restauracao esta configurada neste repositorio
-  nem no Terraform do Banco, e o plano gratuito nao deve oferecer backup gerenciado (a
-  confirmar na documentacao do Atlas, pois nada foi aplicado). Tratar os dados como
-  descartaveis ate haver uma estrategia.
+  nem no Terraform do Banco, e o plano gratuito nao deve oferecer backup gerenciado (nao
+  conferido na documentacao do Atlas). Tratar os dados como descartaveis ate haver uma
+  estrategia.
 - A allowlist do Atlas aceita so o IP de saida do AKS (`/32`): se o cluster for
   recriado e o IP mudar, os pods perdem acesso ao MongoDB ate atualizar
   `aks_egress_ip` no Banco.
@@ -1025,9 +1054,10 @@ Em outros repositorios do ecossistema (leitura complementar):
   qualquer path.** O custo de `/health/ready` ja esta limitado pelo cache de 5 s (no
   maximo uma conexao AMQP e um ping no Atlas por janela), mas o cache nao esconde o
   endpoint nem o `/metrics`. **No repositorio `OficinaMecanica.Infra`** a policy da APIM
-  que devolve 404 para esses dois paths na rota publica ja existe e fica ativa quando o
-  Terraform do Infra for aplicado (ainda nao foi); as probes do kubelet e a coleta de
-  metricas nao passam pela APIM.
+  que devolve 404 para esses dois paths na rota publica esta escrita no Terraform (ADR
+  0007 de la), mas **o bloqueio nao esta efetivo hoje (2026-11-10)**: `/health/ready` e
+  `/metrics` respondem 200 pela APIM, em todos os servicos. Pendente, so com autorizacao
+  do usuario. As probes do kubelet e a coleta de metricas nao passam pela APIM.
 - **Sem papeis na API.** Qualquer token valido opera a fila e pode inviabilizar uma
   ordem em `AguardandoExecucao`. Diferenciar mecanico e supervisor depende de o
   Seguranca emitir outros perfis.
@@ -1042,8 +1072,8 @@ Em outros repositorios do ecossistema (leitura complementar):
 - **Orcamento do no.** O cluster tem um unico no e os *requests* de CPU quase chegam ao
   total. Por isso o `maxSurge: 0` (com uma replica ha uma janela sem pod a cada deploy;
   os comandos da Saga esperam no RabbitMQ e so a API do mecanico fica fora do ar) e o
-  teto de 2 replicas no HPA. **Antes do primeiro deploy**, conferir a folga de CPU com
-  `kubectl describe node`.
+  teto de 2 replicas no HPA (hoje com 2 replicas rodando). Antes de aumentar os requests
+  ou o teto do HPA, conferir a folga de CPU com `kubectl describe node`.
 - **Broker fora na partida.** Com `WaitUntilStarted = true`, a API nao abre a porta
   enquanto o RabbitMQ estiver inalcancavel, sem limite de tempo (medido, sem crash). A
   `startupProbe` finita de 5 min mata o pod, que entra em `CrashLoopBackOff` ate o
@@ -1053,8 +1083,6 @@ Em outros repositorios do ecossistema (leitura complementar):
 - **Indices criados pela API na partida:** uma mudanca incompativel com um indice
   existente (mesmo nome, outras chaves) derruba a partida do pod novo e exige um passo
   manual no Atlas; indice novo e idempotente.
-- Dashboard e alertas (New Relic) dos medidores da fila e do outbox **ainda nao foram
-  criados**.
 
 **Limites de modelagem**
 
@@ -1077,101 +1105,111 @@ Em outros repositorios do ecossistema (leitura complementar):
 
 ---
 
-## 10. Publicacao (ainda nao executada)
+## 10. Publicacao e validacao no AKS
 
-> **Nada abaixo foi executado.** Esta secao e o roteiro. Publicar exige autorizacao
-> explicita e credenciais proprias (MongoDB Atlas, SonarCloud, GitHub e Azure).
+> **Publicado em 2026-11-09/10.** Os PRs #1 a #3 deste repositorio foram mergeados em
+> `release` e em `main`, os pipelines de `main` ficaram verdes e o servico roda no AKS.
+> Esta secao e o registro do que foi publicado e validado, de como reaplicar cada parte e
+> das pendencias que continuam abertas. Mudanca no Azure, no GitHub, no Atlas, no
+> SonarCloud ou no New Relic continua exigindo autorizacao explicita do usuario.
 
-### Pre-requisitos
+### O que foi publicado
 
-| Item | Detalhe |
+| Item | Estado |
 |---|---|
-| Conta e organizacao no **MongoDB Atlas** + **API key** de organizacao | O cluster M0, o usuario `execucao_app` e o segredo no Key Vault sao **provisionados pelo Terraform do repositorio `OficinaMecanica.Banco`**; este repositorio so consome o segredo. Ver o [README do Banco](../OficinaMecanica.Banco/README.md) e o [ADR 0002](../OficinaMecanica.Banco/docs/adr/0002-mongodb-atlas-m0-provisionado-por-terraform.md). **Decisao pendente** de como o CI do Banco acessa a API key (ver o passo 2) |
-| **Conta Azure** com os recursos do `OficinaMecanica.Infra` aplicados | AKS (`aksfiap`), ACR (`acrfiap`), Key Vault (`kvfiap`), APIM, RabbitMQ no AKS (namespace `messaging`) e os segredos `rabbitmq-username` e `rabbitmq-password`. Ordem entre repositorios: **Banco -> Infra -> deploy dos servicos** (ver o [README do Infra](../OficinaMecanica.Infra/README.md#microsservicos-billing-execucao-e-rabbitmq)) |
-| **SonarCloud** | Organizacao e projeto criados; variaveis do repositorio `SONAR_PROJECT_KEY` e `SONAR_ORGANIZATION`; secret `SONAR_TOKEN` (tambem em Settings > Secrets > **Dependabot**, senao os PRs do Dependabot reprovam em `Quality`) |
-| **OIDC (Azure)** | Variaveis do repositorio `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` e `AZURE_SUBSCRIPTION_ID` |
-| GitHub CLI (`gh`) autenticada | Com permissao de administracao no repositorio (para criar o ruleset com `gh api`) |
+| Repositorio `willianrmattos/OficinaMecanica.Execucao` | PRs #1 a #3 mergeados em `release` e em `main` |
+| Pipeline `CI` | Em `main`: Build & Test, Quality (SonarCloud), Scan Image (Trivy), Build & Push no ACR e Deploy to AKS, todos verdes |
+| AKS (`aksfiap`) | Execucao com 2 replicas, junto do OS Service e do Billing (2 replicas cada), do RabbitMQ 4.4.0 (StatefulSet, namespace `messaging`) e do ingress-nginx |
+| APIM (`apimfiap`) | Rota `execucaoserver`, ao lado de `oficinaserver`, `billingserver` e `segurancaserver` |
+| MongoDB Atlas | Cluster M0 em `EUROPE_NORTH`, usuario `execucao_app` restrito ao banco `execucao`, access list so com o IP de saida do AKS e connection string no Key Vault (`kvfiap`). Aplicado so localmente, nunca pelo CI (ADR 0004 do Banco) |
+| Qualidade | Quality Gate do SonarCloud aprovado na `main`; cobertura no Sonar (`main`) de 93,5% |
 
-### Passos, na ordem
+Ordem entre repositorios: **Banco -> Infra -> deploy dos servicos** (ver o
+[README do Infra](../OficinaMecanica.Infra/README.md#microsservicos-billing-execucao-e-rabbitmq)).
+Os seis repositorios do ecossistema (OS Service, Billing, Execucao, Seguranca, Infra e
+Banco) estao em `release` e em `main`.
 
-Todos **ainda nao executados**, exceto o passo 1.
+### Validacao no AKS (2026-11-10)
 
-1. [x] **Actions fixadas por SHA completo** em `.github/workflows/ci.yml`, com a versao
-   num comentario ao lado, registrado no ADR 0003 (feito em 2026-11-09; ver a
-   [secao 9](#9-limitacoes-conhecidas-e-pendencias)). O Dependabot mantem os SHAs.
-2. [ ] **Garantir os recursos de dados e de plataforma**, na ordem: aplicar o
-   `OficinaMecanica.Banco` (cluster Atlas, usuario, `aks_egress_ip` na allowlist e o
-   secret `execucao-mongo-connection-string` no Key Vault; o primeiro apply e **local**,
-   com um administrador humano, e o CI do Banco so funciona depois do bootstrap) e,
-   depois, o `OficinaMecanica.Infra` (RabbitMQ, rota `execucaoserver`, segredos).
+- `/health` e `/health/ready` dos servicos em 200, com MongoDB, RabbitMQ e o bus saudaveis.
+- **Saga ponta a ponta pelo APIM**, com o gateway real do Mercado Pago: o cenario feliz
+  (OS-20261110-95B066: cadastros, diagnostico, orcamento, aprovacao, pagamento, reparo,
+  `Finalizada`, estoque de 10 para 8) e o cenario de recusa passaram.
+- **Nao exercitados na nuvem:** o estorno por reparo inviavel (`ExecucaoInviavel`) e o
+  cancelamento pelo staff, que so rodaram em ambiente local (e2e). As transacoes
+  multi-documento do M0 (outbox do MassTransit sobre MongoDB, em replica set) so foram
+  provadas pelo fluxo feliz.
 
-   **Decisao pendente do Banco, a tomar antes do merge dele em `release`:** o CI do
-   Banco precisa alcancar a Administration API do Atlas, que exige, por padrao, uma
-   access list de IPs na API key, e o runner hospedado do GitHub tem IP variavel.
-   Opcoes (secao [Decisao pendente: como o CI alcanca a API do Atlas](../OficinaMecanica.Banco/README.md#decisao-pendente-como-o-ci-alcanca-a-api-do-atlas)
-   do README do Banco e ADR 0002 de la): (a) `0.0.0.0/0` na access list da **propria API
-   key** (nao do cluster, que continua restrito ao `/32` do AKS); (b) desligar o
-   requisito de access list na organizacao do Atlas; (c) listar as faixas do GitHub
-   (inviavel: sao muitas e mudam toda semana); (d) runner proprio com IP fixo. Sem a
-   decisao, `plan` e `apply` pelo CI do Banco recebem 403 do Atlas, o job `validate`
-   trava e, como o `apply` depende dele, o provisionamento do cluster que a Execucao
-   usa fica bloqueado pelo CI. O primeiro apply (local) nao depende do runner, mas
-   exige o IP da maquina do administrador na access list da API key.
-3. [ ] **Criar o repositorio** `willianrmattos/OficinaMecanica.Execucao` no GitHub
-   (nome que o `ci.yml`, o ruleset e o Terraform esperam), vazio e **sem empurrar nada
-   ainda**.
-4. [ ] **Preencher o ID do repositorio no `OficinaMecanica.Infra` e aplicar o
-   Terraform.** Obter o ID com
-   `gh api repos/willianrmattos/OficinaMecanica.Execucao --jq .id`, gravar em
-   `variables.tf` como `default` de `execucao_github_repo_id` (por PR: o CI do Infra
-   nao le `.tfvars`) e aplicar. Isso cria o modulo `github_oidc_execucao` (identidade
-   OIDC com `AcrPush` e `AKS Cluster Admin`, so para `push` em `main` e `release`).
-   Depois, `terraform output execucao_github_actions_client_id` devolve o valor do
-   `AZURE_CLIENT_ID`.
-5. [ ] **Configurar as variaveis e o secret no repositorio** (Settings > Secrets and
-   variables > Actions):
+### Como reaplicar cada parte
 
-   ```bash
-   gh variable set AZURE_CLIENT_ID       --body "<execucao_github_actions_client_id>"
-   gh variable set AZURE_TENANT_ID       --body "<tenant>"
-   gh variable set AZURE_SUBSCRIPTION_ID --body "<subscription>"
-   gh variable set SONAR_PROJECT_KEY     --body "<chave do projeto no SonarCloud>"
-   gh variable set SONAR_ORGANIZATION    --body "<organizacao no SonarCloud>"
-   gh secret   set SONAR_TOKEN           # cola o token quando solicitado
-   gh secret   set SONAR_TOKEN --app dependabot
-   ```
+Tudo abaixo muda recurso real e so se executa com autorizacao e credenciais proprias.
 
-6. [ ] **Enviar a branch e abrir o primeiro PR para `release`.** Como o repositorio
-   nasce vazio, primeiro empurrar `main` e `release` (os locais so tem o commit
-   inicial, sem workflow: nao dispara nada). Depois, empurrar `feature/microsservicos`
-   para o `origin` e abrir o PR **para `release`**: o `CI` roda pela primeira vez
-   (`Build & Test` e `Quality`; PR nao toca o Azure nem publica imagem).
-7. [ ] **Criar o ruleset**, depois que o CI rodou ao menos uma vez (o GitHub so
-   oferece como obrigatorio um check que ja apareceu; com o ruleset ativo, push direto
-   em `main`/`release` passa a ser recusado). O repositorio acabou de ser criado, entao
-   e uma criacao (`POST`), com o JSON versionado como entrada:
+**1. Atlas (repositorio `OficinaMecanica.Banco`, so da maquina de um administrador).**
+Precisa de `az login` com `Key Vault Administrator` no `kvfiap` e acesso ao container do
+state, e de uma API key de organizacao do Atlas cuja access list inclua o IP da maquina
+(ver o [README do Banco](../OficinaMecanica.Banco/README.md#decisao-o-ci-nao-alcanca-o-atlas)
+e o [ADR 0004](../OficinaMecanica.Banco/docs/adr/0004-atlas-aplicado-so-localmente-fora-do-ci.md)):
 
-   ```bash
-   gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets \
-     --input .github/rulesets/protect-main-release.json
-   ```
+```bash
+cd atlas
+terraform init
+terraform plan
+terraform apply   # com MONGODB_ATLAS_PUBLIC_KEY, MONGODB_ATLAS_PRIVATE_KEY, TF_VAR_atlas_org_id e TF_VAR_aks_egress_ip no ambiente
+```
 
-   Atencao: o ruleset exige o check `Quality`, e esse job so passa com o secret
-   `SONAR_TOKEN` e as variaveis do SonarCloud (passo 5); sem eles o `Quality` falha e, com
-   o ruleset ativo, todo PR fica bloqueado.
+O cluster M0 nao e modificavel: trocar nome ou regiao recria o cluster e apaga os dados
+(`prevent_destroy`). Se o IP de saida do AKS mudar, atualizar `TF_VAR_aks_egress_ip` e
+aplicar de novo.
 
-8. [ ] **Antes do primeiro deploy**, conferir: folga de CPU do no
-   (`kubectl describe node`); o IP de saida do AKS na allowlist do Atlas; o secret
-   `execucao-mongo-connection-string` existente no Key Vault; e executar o **teste real
-   de transacao + consumer no Atlas M0** (pendencia do ADR 0001; o procedimento ainda
-   nao esta definido neste repositorio).
-9. [ ] **Merge do PR em `release`.** O `push` dispara `Scan Image`, `Build & Push` e
-   `Deploy to AKS` **pela primeira vez**: imagem no ACR e rollout no **mesmo Deployment**
-   de producao (homologacao e producao compartilham o cluster). Verificar o rollout,
-   `/health/ready` e a criacao dos indices na partida.
-10. [ ] **PR de `release` para `main`** (o merge e feito pelo mantenedor). O `push` em
-    `main` repete o pipeline de publicacao e tambem grava a tag `:latest` da imagem.
-11. [ ] **Pos-publicacao:** preencher o badge e o link do SonarCloud em
-    [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md); confirmar a premissa de path da APIM
-    chamando `/execucaoserver/health`; apos aplicar o Infra, confirmar que a policy de la
-    devolve 404 para `/health/ready` e `/metrics` na rota publica; criar o dashboard e os alertas.
+**2. Identidade OIDC (repositorio `OficinaMecanica.Infra`).** O modulo `github_oidc_execucao`
+existe quando `execucao_github_repo_id` esta preenchido (o `default` em `variables.tf` e o
+id do repositorio, criado em 2026-11-09; o CI do Infra nao le `.tfvars`). O id vem de
+`gh api repos/willianrmattos/OficinaMecanica.Execucao --jq .id` e o valor de
+`AZURE_CLIENT_ID` de `terraform output execucao_github_actions_client_id`.
+
+**3. Variaveis e secret do repositorio** (Settings > Secrets and variables > Actions):
+
+```bash
+gh variable set AZURE_CLIENT_ID       --body "<execucao_github_actions_client_id>"
+gh variable set AZURE_TENANT_ID       --body "<tenant>"
+gh variable set AZURE_SUBSCRIPTION_ID --body "<subscription>"
+gh variable set SONAR_PROJECT_KEY     --body "<chave do projeto no SonarCloud>"
+gh variable set SONAR_ORGANIZATION    --body "<organizacao no SonarCloud>"
+gh secret   set SONAR_TOKEN           # cola o token quando solicitado
+gh secret   set SONAR_TOKEN --app dependabot
+```
+
+O `SONAR_TOKEN` tambem precisa estar em Dependabot, senao os PRs do Dependabot reprovam
+em `Quality`. O job `Quality` falha sem o token e as variaveis do Sonar.
+
+**4. Ruleset** com o JSON versionado como entrada. A criacao e um `POST`; com o ruleset ja
+existente, a atualizacao e um `PUT` em `rulesets/<id>`:
+
+```bash
+gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets \
+  --input .github/rulesets/protect-main-release.json
+```
+
+O ruleset exige `Build & Test` e `Quality`; com ele ativo, push direto em `main` e
+`release` e recusado e todo PR depende desses dois checks.
+
+**5. Deploy.** O merge em `release` ou `main` dispara `Scan Image`, `Build & Push` e
+`Deploy to AKS` no **mesmo Deployment** (homologacao e producao compartilham o cluster).
+Depois do deploy, conferir o rollout, `/health/ready` e a criacao dos indices na partida.
+
+### Pendencias abertas
+
+Nenhuma destas esta resolvida; as que mexem em recurso real exigem autorizacao do usuario.
+
+- **Bloqueio de `/health/ready` e `/metrics` na APIM.** A policy esta no Terraform do Infra
+  (ADR 0007 de la), mas hoje os dois paths respondem 200 pela APIM, em todos os servicos
+  (detalhe na [secao 9](#9-limitacoes-conhecidas-e-pendencias)).
+- **Autorizacao so por JWT valido**, sem papeis: qualquer token valido opera a fila.
+- **Estorno por reparo inviavel e cancelamento pelo staff** sem teste na nuvem; as
+  transacoes multi-documento do M0 so foram provadas pelo fluxo feliz.
+- **MassTransit 8 sem suporte oficial apos 31/12/2026** e **.NET 8 LTS ate nov/2026**.
+- **Chave admin do Atlas** (`ORG_OWNER`): deve ser rebaixada ou revogada.
+- **Ruleset do OS Service e do Seguranca** ainda nao exigem o check `Quality` (a Execucao ja
+  exige).
+- **Badge e link do SonarCloud** em [docs/relatorios/cobertura.md](docs/relatorios/cobertura.md)
+  ainda nao foram preenchidos.

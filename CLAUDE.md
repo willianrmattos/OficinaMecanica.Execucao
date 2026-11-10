@@ -12,14 +12,16 @@ saga) so por mensagens (RabbitMQ + MassTransit 8.5.12): recebe `SolicitarDiagnos
 O mecanico opera pela API HTTP (JWT do Seguranca). Nenhuma dependencia de
 compilacao com outro repositorio e nenhum acesso ao banco de outro servico.
 
-Estado atual: Domain, Application, Infrastructure (MongoDB + MassTransit/RabbitMQ),
-API, Dockerfile, docker-compose, testes (incluindo Testcontainers) e o CI/CD
-(`.github/`), os manifests (`k8s/execucao/`), a protecao de branch versionada e os
-scripts de `scripts/` prontos. O `README.md` e o `docs/relatorios/cobertura.md` estao prontos; falta o teste real no Atlas M0
-(precisa de credenciais do usuario). O repositorio ainda nao existe no GitHub: o CI/CD foi
-validado so localmente (`actionlint`, `kubeconform`, `docker build`, execucao da imagem
-contra MongoDB e RabbitMQ reais, execucao dos scripts e do `ci-local.sh`); a primeira
-execucao real do workflow acontece na publicacao.
+Estado atual (2026-11-10): **publicado e no ar.** Domain, Application, Infrastructure (MongoDB + MassTransit/RabbitMQ),
+API, Dockerfile, docker-compose, testes (incluindo Testcontainers), CI/CD (`.github/`), manifests (`k8s/execucao/`), protecao de
+branch versionada e os scripts de `scripts/` estao prontos e publicados. Os PRs #1 a #3 foram mergeados em `release` e em `main`
+(2026-11-09/10), os pipelines de `main` ficaram verdes (Build & Test, Quality/SonarCloud, Scan Image/Trivy, Build & Push no ACR e
+Deploy no AKS) e o servico roda no AKS (`aksfiap`, 2 replicas) contra o MongoDB Atlas M0 (`EUROPE_NORTH`) e o RabbitMQ do namespace
+`messaging`. Validacao na nuvem (Fase 4, 2026-11-10): `/health` e `/health/ready` em 200 e a Saga ponta a ponta pelo APIM com o
+gateway real do Mercado Pago (cenario feliz e cenario de recusa). **Nao exercitados na nuvem:** estorno por reparo inviavel e
+cancelamento pelo staff (so local/e2e); as transacoes multi-documento do M0 so foram provadas pelo fluxo feliz. Pendencias abertas:
+ver "Pendencias" no fim. Antes da publicacao o CI/CD foi validado localmente (`actionlint`, `kubeconform`, `docker build`,
+execucao da imagem contra MongoDB e RabbitMQ reais, execucao dos scripts e do `ci-local.sh`).
 
 ## Estrutura do Projeto
 
@@ -385,11 +387,11 @@ repositorios** porque o ruleset exige o mesmo nome em todos.
 | `build-and-push-image` | idem, `needs: scan-image` | OIDC (`id-token: write`), baixa o artifact, `docker load`, `az acr login` e empurra a MESMA imagem escaneada (sem rebuild); tags `oficinamecanica-execucao:<sha>` sempre e `:latest` so na `main`. Sem checkout; so `actions/*` e `azure/login` |
 | `deploy-to-aks` | idem, `needs: build-and-push-image`; `concurrency: deploy-aks-execucao` (`cancel-in-progress: false`) | OIDC, `aks-set-context` (admin, `rgfiap`/`aksfiap`), `envsubst '${IMAGE}'`, `kubectl apply`, `set image`, `rollout status` (420 s). Namespace `default`. **Sem migration** (MongoDB nao tem esquema): os indices e as colecoes do outbox/inbox sao criados pelo `MongoInitializer` na partida de cada pod |
 
-**O que o repositorio do GitHub precisa ter (Settings > Secrets and variables > Actions) quando existir:**
+**O que o repositorio do GitHub tem (Settings > Secrets and variables > Actions), configurado na publicacao:**
 
 | Tipo | Nome | Valor |
 |---|---|---|
-| variavel | `AZURE_CLIENT_ID` | `terraform output execucao_github_actions_client_id` do `OficinaMecanica.Infra` (so existe depois de preencher `execucao_github_repo_id`) |
+| variavel | `AZURE_CLIENT_ID` | `terraform output execucao_github_actions_client_id` do `OficinaMecanica.Infra` (o modulo OIDC existe com `execucao_github_repo_id` preenchido; o `default` em `variables.tf` do Infra e o id do repositorio, criado em 2026-11-09) |
 | variavel | `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | os mesmos dos demais repositorios |
 | variavel | `SONAR_PROJECT_KEY`, `SONAR_ORGANIZATION` | projeto e organizacao no SonarCloud |
 | secret | `SONAR_TOKEN` | token do SonarCloud; e o **unico** secret de longa duracao (o SonarCloud nao suporta OIDC). Criar tambem em Settings > Secrets > **Dependabot**: os PRs do Dependabot nao enxergam os secrets de Actions e reprovariam em `Quality` |
@@ -407,7 +409,7 @@ nao as le.
 | `verificar-cobertura.sh <Summary.txt> [min]` | o gate: calcula o percentual de `Covered lines`/`Coverable lines` (inteiros, nao o `Line coverage` arredondado) e falha (exit 1) abaixo do minimo; vale para o numero "com exclusoes" |
 | `verificar-masstransit.sh [alvo]` / `--entrada <arquivo>` | falha se qualquer pacote `MassTransit*` (inclui `MassTransit.MongoDb`), direto ou transitivo, resolver para major diferente de 8; `--entrada` analisa uma saida ja capturada de `dotnet list package` (sem restore) |
 | `verificar-workflow.sh [ci.yml]` | guarda a separacao de privilegios do workflow: job que declara `id-token` so pode executar `actions/*` e `azure/*` (as de terceiros ficam no `scan-image`, sem `id-token`); `id-token` no nivel do workflow tambem reprova (exit 1; 2 se o arquivo nao tem jobs) |
-| `testar-scripts.sh [--sem-mutantes]` | testa o caminho de FALHA de TODOS os scripts de CI com entradas sinteticas (72 casos) e planta defeitos em copias dos scripts exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Cobre: o gate e o guardrail isolados; o valor do gate no CI (o `ci.yml` exporta `COBERTURA_MINIMA: "80"`, com mutante 80 -> 10); o verificador do workflow; o **`cobertura.sh relatorio` de ponta a ponta** sobre um OpenCover sintetico (79% reprova, 81% aprova, `Program.cs` e `DependencyInjection.cs` fora do numero do gate, cada filtro de exclusao com seu mutante, o aviso de `[ExcludeFromCodeCoverage]` com a contagem no resumo, `COBERTURA_MINIMA`, fase invalida, sem relatorios), o que prova que o gate esta LIGADO ao relatorio (um mutante apaga a chamada); `validar-k8s.sh` (diretorio inexistente, campo desconhecido reprova no `-strict`, CRD ignorado; precisa de Docker, pulado com aviso sem ele); `exportar-swagger.sh --verificar` com um `dotnet` de mentira no `PATH` (em dia aprova, divergente e ausente reprovam, normalizacao de CRLF e `\r\n`); `--x` em `exportar-swagger.sh` e `ci-local.sh` (exit 2); que os contextos exigidos pelo ruleset versionado (`Build & Test` e `Quality`) sao o `name` de jobs do `ci.yml`; e que `ci.yml` e `ci-local.sh` chamam os mesmos passos. Tudo que escreve roda numa copia temporaria (sandbox), nunca em `TestResults/`, `artifacts/` ou `docs/` do repositorio. Roda no `Build & Test` e no `ci-local.sh`; leva ~2,5 a 3 min (medido: de 2 min 39 s a 3 min 1 s, conforme a carga da maquina; o peso e o ReportGenerator e o kubeconform em Docker) |
+| `testar-scripts.sh [--sem-mutantes]` | testa o caminho de FALHA de TODOS os scripts de CI com entradas sinteticas (70 casos) e planta defeitos em copias dos scripts exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Cobre: o gate e o guardrail isolados; o valor do gate no CI (o `ci.yml` exporta `COBERTURA_MINIMA: "80"`, com mutante 80 -> 10); o verificador do workflow; o **`cobertura.sh relatorio` de ponta a ponta** sobre um OpenCover sintetico (79% reprova, 81% aprova, `Program.cs` e `DependencyInjection.cs` fora do numero do gate, cada filtro de exclusao com seu mutante, o aviso de `[ExcludeFromCodeCoverage]` com a contagem no resumo, `COBERTURA_MINIMA`, fase invalida, sem relatorios), o que prova que o gate esta LIGADO ao relatorio (um mutante apaga a chamada); `validar-k8s.sh` (diretorio inexistente, campo desconhecido reprova no `-strict`, CRD ignorado; precisa de Docker, pulado com aviso sem ele); `exportar-swagger.sh --verificar` com um `dotnet` de mentira no `PATH` (em dia aprova, divergente e ausente reprovam, normalizacao de CRLF e `\r\n`); `--x` em `exportar-swagger.sh` e `ci-local.sh` (exit 2); que os contextos exigidos pelo ruleset versionado (`Build & Test` e `Quality`) sao o `name` de jobs do `ci.yml`; e que `ci.yml` e `ci-local.sh` chamam os mesmos passos. Tudo que escreve roda numa copia temporaria (sandbox), nunca em `TestResults/`, `artifacts/` ou `docs/` do repositorio. Roda no `Build & Test` e no `ci-local.sh`; leva ~2,5 a 3 min (medido: de 2 min 39 s a 3 min 1 s, conforme a carga da maquina; o peso e o ReportGenerator e o kubeconform em Docker) |
 | `exportar-swagger.sh [--verificar] [--sem-build]` | `swagger tofile` (ferramenta fixada em `dotnet-tools.json`) para `docs/openapi.json`; com `--verificar` gera em `artifacts/openapi.json` e falha se o versionado difere |
 | `validar-k8s.sh` | renderiza `${IMAGE}` e valida `k8s/execucao/` com `kubeconform -strict` (Docker; o CRD do SecretProviderClass e ignorado) |
 
@@ -418,8 +420,8 @@ nao as le.
   documento gerado no Linux e identico ao do Windows). `.gitattributes` fixa `docs/openapi.json` e `*.sh` em LF.
 - **Protecao de branch**: `.github/rulesets/protect-main-release.json` (alvo `main` e `release`; `deletion`, `non_fast_forward`,
   `pull_request` com 0 aprovacoes e merge/squash/rebase, `required_status_checks` com `Build & Test` e `Quality`). Replica o ruleset dos
-  outros repositorios (aqui sem acesso ao GitHub para comparar: confirmar na publicacao). Nao ha script para aplica-lo: o JSON e a entrada
-  direta da GitHub CLI, executada manualmente na publicacao, depois do primeiro CI (o repositorio ainda nao existe, entao e uma criacao):
+  outros repositorios e esta aplicado neste repositorio. Nao ha script para aplica-lo: o JSON e a entrada direta da GitHub CLI, executada
+  manualmente na publicacao, depois do primeiro CI (criacao, `POST`; com o ruleset ja existente, a atualizacao e um `PUT` em `rulesets/<id>`):
   `gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json`.
 - **Dependabot**: nuget, github-actions e docker, semanal; ignora major de `MassTransit*` (9.x e comercial), de `MongoDB.Driver*` (fica na
   versao do `MassTransit.MongoDb 8.5.12`) e das imagens base `dotnet/aspnet`/`dotnet/sdk`.
@@ -452,10 +454,10 @@ nao as le.
   `rabbitmq-username` e `rabbitmq-password`) sincronizados no Secret `execucao-secrets`; identidade e tenant sao os mesmos literais do monolito.
 - `kubectl apply --dry-run=client` nao roda sem API server (precisa de discovery); a validacao offline e o `kubeconform -strict`.
 
-**Validado localmente (sem Azure/GitHub)**: `actionlint` e `shellcheck` sem achados, `kubeconform -strict` (4 validos, 1 CRD ignorado), imagem
+**Validado localmente antes da publicacao (sem Azure/GitHub)**: `actionlint` e `shellcheck` sem achados, `kubeconform -strict` (4 validos, 1 CRD ignorado), imagem
 construida e executada como nao-root com `--read-only`, `--cap-drop ALL`, 384 MiB e 0,3 CPU contra MongoDB (replica set) e RabbitMQ reais
 (`/health` 200 em ~6-8 s, `/health/ready` 200 JSON, mensagens consumidas e indices criados; com o broker congelado `/health/ready` 200
-`Degraded` em 3 s, com o MongoDB congelado 503 em 3 s), `testar-scripts.sh` (72 casos e 31 mutantes detectados; falha tambem quando os scripts sao
+`Degraded` em 3 s, com o MongoDB congelado 503 em 3 s), `testar-scripts.sh` (70 casos e 31 mutantes detectados; falha tambem quando os scripts sao
 quebrados numa copia fora do repositorio), guardrail reprovando uma copia com `MassTransit 9`, OpenAPI gerado e conferido (inclusive em Linux, com
 `mawk`), gate de cobertura passando com o relatorio real e reprovando com limite acima do medido, `ci-local.sh` completo.
 
@@ -472,13 +474,18 @@ medicoes (nem entra no denominador); `cobertura.sh` lista as ocorrencias em `src
 impede mover a tag depois, nao prova que o commit e confiavel); o Dependabot (`github-actions`) propoe as atualizacoes no mesmo formato. O Trivy estava como `0.28.0`, tag que
 nao existe no repositorio da action; o pin aponta hoje para a `v0.36.0`: a `v0.28.0` chama internamente `setup-trivy@v0.2.1`, tag que deixou de existir, e a `v0.36.0` fixa as actions internas por SHA.
 
-**Fica para a publicacao**: criar o repositorio `willianrmattos/OficinaMecanica.Execucao` e empurrar; preencher `execucao_github_repo_id` no
-`OficinaMecanica.Infra` (aplicar) e configurar as variaveis OIDC; criar o secret `SONAR_TOKEN` e as variaveis do Sonar (e o projeto no
-SonarCloud); rodar uma vez o CI para os checks existirem e entao criar o ruleset com
-`gh api --method POST repos/willianrmattos/OficinaMecanica.Execucao/rulesets --input .github/rulesets/protect-main-release.json` (o job `Quality` e check
-obrigatorio e exige o `SONAR_TOKEN` e as variaveis do Sonar: sem eles falha e, com o ruleset ativo, todo PR fica bloqueado); confirmar a premissa da
-APIM (concatenacao do path do backend `/execucao`); `kubectl describe node` com folga de CPU antes do primeiro deploy; confirmar que o egress do AKS esta na
-allowlist do Atlas e que o secret `execucao-mongo-connection-string` ja existe no Key Vault (`OficinaMecanica.Banco` aplicado antes).
+**Publicacao (feita em 2026-11-09/10)**: repositorio `willianrmattos/OficinaMecanica.Execucao` criado e publicado (PRs #1 a #3 mergeados em `release` e
+em `main`); `execucao_github_repo_id` preenchido no `OficinaMecanica.Infra` (modulo OIDC `github_oidc_execucao`) e variaveis OIDC configuradas;
+`SONAR_TOKEN` e variaveis do Sonar criados; ruleset aplicado depois do primeiro CI (o job `Quality` e check obrigatorio e exige o `SONAR_TOKEN` e as
+variaveis do Sonar: sem eles falha e, com o ruleset ativo, todo PR fica bloqueado); rota `execucaoserver` da APIM no ar (a premissa de concatenacao
+do path do backend `/execucao` foi confirmada: `/health/ready` responde 200 pela rota); Atlas aplicado so localmente pelo `OficinaMecanica.Banco`
+(`atlas/`, ADR 0004 de la) em `EUROPE_NORTH`, com o egress do AKS na allowlist e o secret `execucao-mongo-connection-string` no Key Vault. Os comandos
+para reaplicar cada parte estao no `README.md` (secao 10). Sonar na `main`: Quality Gate aprovado e cobertura de 93,5% (o script local mede 99,42%).
+
+**Aprendizados da publicacao que viraram regra**: (1) o ingress com `use-regex` faz o ingress-nginx tratar como regex todos os paths do host e o
+catch-all da API captura o `/healthz`; por isso a sonda do load balancer das portas 80 e 443 e TCP (Infra, `helm/main.tf`); este servico tambem usa
+`use-regex` no prefixo `/execucao`. (2) A primeira analise da `main` de um projeto novo no SonarCloud devolve o gate `NONE` e o job `Quality` falha; um
+re-run resolve. (3) Actions fixadas por SHA precisam ter as actions internas resolviveis (ver "Actions fixadas por SHA", acima).
 
 ## Contratos
 
@@ -538,11 +545,17 @@ de vulnerabilidade High.
 
 ## Pendencias
 
-- Teste real de transacao + consumer no Atlas M0 (credenciais do usuario); fallback do spike descrito no ADR 0001
-- Decisao pendente no `OficinaMecanica.Banco` (README de la, "Decisao pendente: como o CI alcanca a API do Atlas"): sem ela o CI do Banco recebe 403 do Atlas, o job `validate` trava e o cluster que a Execucao usa nao e provisionado pelo CI
-- Publicacao do CI/CD (repositorio no GitHub, OIDC, SonarCloud, ruleset): lista em "CI/CD e Kubernetes"; o dashboard fica para a documentacao final
+So com autorizacao explicita do usuario quando mexem em Azure, GitHub, Atlas, SonarCloud ou New Relic.
+
+- Estorno por reparo inviavel (`ExecucaoInviavel`) e cancelamento pelo staff nao foram exercitados na nuvem (so local/e2e); as transacoes
+  multi-documento do Atlas M0 so foram provadas pelo fluxo feliz. O fallback do spike esta descrito no ADR 0001
 - Bloqueio na APIM (`OficinaMecanica.Infra`): `/health/ready` e `/metrics` sao anonimos e a rota `execucaoserver` da APIM repassa qualquer path. O custo de
   `/health/ready` ja esta limitado pelo cache de 5 s (no maximo 1 conexao AMQP e 1 ping no Atlas por janela, qualquer que seja a taxa de
-  requisicoes); o cache nao esconde o endpoint nem o `/metrics`, entao o bloqueio dos dois paths na rota publica (policy `return-response`
-  404 na APIM) foi escrito no Infra (ADR 0007 de la) e fica ativo quando o Terraform do Infra for aplicado (ainda nao foi)
+  requisicoes); o cache nao esconde o endpoint nem o `/metrics`. A policy (`return-response` 404 na APIM) esta no Terraform do Infra (ADR 0007 de la),
+  mas em 2026-11-10 `/health/ready` e `/metrics` ainda respondem 200 pela APIM, em todos os servicos: o bloqueio nao esta efetivo
+- Autorizacao so por JWT valido (sem papeis): qualquer token valido opera a fila
+- MassTransit 8 sem suporte oficial apos 31/12/2026 e .NET 8 LTS ate nov/2026
+- A chave admin do Atlas (`ORG_OWNER`) deve ser rebaixada ou revogada
+- Ruleset do OS Service e do Seguranca ainda nao exigem o check `Quality` (o da Execucao ja exige)
+- Badge e link do SonarCloud em `docs/relatorios/cobertura.md` ainda nao preenchidos
 - Atlas/Key Vault: `ConnectionStrings__MongoDb` e credenciais RabbitMQ so por segredo, nunca em arquivo versionado

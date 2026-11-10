@@ -3,6 +3,8 @@
 ## Status
 Aceito (verificado em Mongo 7 e RabbitMQ 4; Atlas M0 ainda nao verificado)
 
+Atualizacao em 2026-11-10: o servico roda no AKS contra o Atlas M0 (`EUROPE_NORTH`) e o fluxo feliz da Saga passou na nuvem pelo outbox transacional sobre o MongoDB, o que provou as transacoes multi-documento do M0 nesse caminho. Estorno por reparo inviavel e cancelamento pelo staff nao foram exercitados na nuvem. O corpo abaixo e o registro da decisao e nao foi reescrito.
+
 ## Contexto
 O estado da ordem e a mensagem para a saga (`DiagnosticoIniciado`, `DiagnosticoConcluido`,
 `ExecucaoFinalizada`, `ExecucaoInviavel`) precisam ser atomicos: nunca ordem alterada sem evento, nem evento
