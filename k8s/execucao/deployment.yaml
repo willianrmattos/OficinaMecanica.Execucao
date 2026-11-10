@@ -1,0 +1,184 @@
+# Deployment do OficinaMecanica.Execucao no namespace default (como o monolito: o no unico nao tem CPU para mais um
+# namespace de aplicacao). Deixei um unico placeholder, ${IMAGE}: o CI o substitui por envsubst pela imagem do commit
+# (acrfiap.azurecr.io/oficinamecanica-execucao:<sha>); aplicado sem substituir, o pod falha com nome de imagem invalido
+# em vez de implantar uma tag qualquer.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficinamecanica-execucao
+  namespace: default
+  labels:
+    app: oficinamecanica-execucao
+spec:
+  # Omiti "replicas" de proposito: a contagem e do HorizontalPodAutoscaler (hpa.yaml, 1 a 2). Um valor aqui seria
+  # reaplicado a cada deploy e derrubaria a replica extra que o HPA tivesse criado.
+  revisionHistoryLimit: 3
+  # Usei maxSurge: 0 porque o no unico do cluster nao tem CPU de requests sobrando para um pod extra durante o rollout (um
+  # pod surge ficaria Pending por Insufficient cpu e o "rollout status" do CI nunca terminaria). Com uma replica isso
+  # significa uma janela sem pod entre o antigo sair e o novo ficar pronto (ate o startupProbe passar): os comandos da
+  # saga esperam no RabbitMQ e o mecanico so perde a API durante essa janela, nenhuma mensagem se perde.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: oficinamecanica-execucao
+  template:
+    metadata:
+      labels:
+        app: oficinamecanica-execucao
+    spec:
+      # Desabilitei o token da service account porque a API nao fala com a API do Kubernetes: um comprometimento do
+      # processo nao ganha credencial de cluster. O pull da imagem no ACR vem do kubelet (role AcrPull do AKS),
+      # por isso nao configurei imagePullSecrets.
+      automountServiceAccountToken: false
+      # O host do .NET espera ate 30 s pelo desligamento (consumers em andamento terminam e o MassTransit para o bus);
+      # 40 s evita o SIGKILL chegar junto com o fim desse prazo.
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ${IMAGE}
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Production (nunca Development): o validador da partida recusa o transporte em memoria e a ausencia de
+            # outbox fora de Development/Testing. Os indices e as colecoes do MongoDB nao dependem de migration no
+            # deploy: o MongoInitializer os cria (idempotente) na partida de cada pod, antes de o bus consumir.
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            # Sao os padroes do codigo; deixei explicitos porque uma mudanca acidental destes dois valores deve aparecer
+            # no diff do manifest (e a partida em Production a recusaria se virasse EmMemoria/Nenhum).
+            - name: Mensageria__Transporte
+              value: "RabbitMq"
+            - name: Mensageria__Outbox
+              value: "MongoDb"
+            # Broker do namespace messaging (OficinaMecanica.Infra/helm/rabbitmq.tf).
+            - name: RabbitMq__Host
+              value: "rabbitmq.messaging.svc.cluster.local"
+            - name: RabbitMq__Port
+              value: "5672"
+            - name: RabbitMq__VirtualHost
+              value: "/"
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: execucao-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: execucao-secrets
+                  key: rabbitmq-password
+            # Connection string do Atlas (usuario dedicado com readWrite so no banco "execucao"), gravada no Key Vault
+            # pelo OficinaMecanica.Banco. O nome do banco e o mesmo que o Banco usa na connection string.
+            - name: ConnectionStrings__MongoDb
+              valueFrom:
+                secretKeyRef:
+                  name: execucao-secrets
+                  key: execucao-mongo-connection-string
+            - name: MongoDb__Database
+              value: "execucao"
+            # Mesmo emissor/audiencia/JWKS do monolito: o token e emitido pelo OficinaMecanica.Seguranca e a chave publica
+            # vem da APIM (https), sem segredo compartilhado.
+            - name: JwtSettings__Issuer
+              value: "OficinaMecanica.Seguranca"
+            - name: JwtSettings__Audience
+              value: "OficinaMecanica.Client"
+            - name: JwtSettings__JwksUri
+              value: "https://apimfiap.azure-api.net/segurancaserver/.well-known/jwks.json"
+            # Mesmo Collector do monolito (OficinaMecanica.Infra/helm/otel-collector.tf), que reexporta para a New Relic.
+            - name: Otel__Endpoint
+              value: "http://otel-collector-opentelemetry-collector.monitoring.svc.cluster.local:4317"
+            # Os contadores do servico (ordens_enfileiradas_total etc.) sao Counter; com temporalidade cumulativa
+            # (padrao do SDK) a New Relic os mostra zerados. Delta e o que ela recomenda para esse tipo de metrica.
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "delta"
+          # /health e liveness puro (responde sem tocar em banco nem broker) e /health/ready e a prontidao: abre conexao
+          # com o MongoDB (503 so com o banco fora, porque sem ele a API nao aceita escrita) e com o RabbitMQ (broker fora
+          # = Degraded, que continua 200: o outbox segura as mensagens e tirar o pod de rotacao por causa do broker
+          # viraria indisponibilidade total).
+          # Risco aceito: o MassTransit (WaitUntilStarted) segura a partida ate o bus conectar no RabbitMQ SEM limite de
+          # tempo, e o Kestrel so abre a porta depois disso; com o broker fora, /health nao responde. O startupProbe e
+          # finito (60 x 5 s = 5 min, folga para o broker do cluster reiniciar junto com o no): passado esse prazo o
+          # kubelet mata o pod e ele fica em CrashLoopBackOff ate o broker voltar. Liveness e readiness so valem depois
+          # que o startupProbe passa. Os checks de prontidao (banco e broker, em paralelo) tem limite de 3 s, valido
+          # inclusive com o broker congelado (conexao TCP aceita e handshake AMQP sem resposta, coberto por teste), e o
+          # timeout padrao do Kubernetes e 1 s, por isso a readiness tem timeoutSeconds: 5. O resultado da prontidao fica
+          # em cache de 5 s (Health:ProntidaoCacheSegundos, menor que o periodo, entao cada probe ve uma medicao nova)
+          # porque o endpoint e anonimo e alcancavel pela APIM: o cache limita o custo a uma conexao AMQP e um ping no
+          # Atlas por janela, qualquer que seja a taxa de requisicoes. O periodSeconds de 30 reduz so a carga das probes;
+          # nao evita trafego que o servico ja gera, porque o outbox do MassTransit consulta o MongoDB a cada
+          # Mensageria:IntervaloDoOutboxEmMs. O preco e que tirar um pod da rotacao leva ate 90 s (3 falhas). A liveness
+          # e so /health (sem dependencias) e usa o mesmo periodo para a CPU limitada do no nao marcar o pod como morto
+          # por uma resposta lenta isolada.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # CPU e o recurso escasso do no unico (os requests do cluster quase chegam ao total), entao mantive o request de
+          # CPU minimo e o limite de 300m so protege os vizinhos. Memoria sobra no no: medida no container (com
+          # MongoDB em replica set e RabbitMQ reais, 0,3 CPU), a API usa cerca de 82 MiB em repouso e 110 MiB depois de
+          # algumas centenas de requisicoes e de mensagens consumidas, entao o limite de 384 MiB deixa folga de 3x e o
+          # request de 192 MiB mantem o uso em repouso perto de 45% dele, abaixo dos 80% do HPA.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+              # Cobre o emptyDir de /tmp (64Mi) e os arquivos de log do container, que contam neste limite.
+              ephemeral-storage: 256Mi
+          volumeMounts:
+            # Root somente leitura; /tmp gravavel e onde o .NET e as bibliotecas colocam arquivos temporarios e o socket de
+            # diagnostico do runtime. O Data Protection cai em chaves efemeras (aviso na partida) porque o home do usuario
+            # tambem e somente leitura: a API so valida JWT, nao protege cookie nem antiforgery.
+            - name: tmp
+              mountPath: /tmp
+            # So preciso do volume montado para o driver sincronizar o Secret execucao-secrets (ver
+            # secret-provider-class.yaml); o container nao le nada deste caminho, os valores chegam por secretKeyRef.
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: execucao-secrets-provider
