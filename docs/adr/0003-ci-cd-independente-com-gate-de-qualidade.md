@@ -3,6 +3,10 @@
 ## Status
 Aceito
 
+Atualizacao em 2026-11-10: o pipeline foi publicado (PRs #1 a #3 mergeados em `release` e em `main`, 2026-11-09/10) e os cinco
+jobs ficaram verdes em `main`: Build & Test, Quality (SonarCloud), Scan Image (Trivy), Build & Push no ACR e Deploy no AKS. O
+Contexto abaixo descreve o momento da decisao, antes da publicacao, e nao foi reescrito.
+
 ## Contexto
 A Execucao e um microsservico independente: repositorio, banco (MongoDB Atlas, banco `execucao`), credencial de banco
 dedicada, identidade OIDC propria e rota propria na APIM. Ela precisa de um pipeline proprio que prove, a cada PR, que o
@@ -51,7 +55,7 @@ no denominador, e o gate nao tem como julgar a justificativa. `scripts/cobertura
 `ExcludeFromCodeCoverage` em `src/` no relatorio e no Job Summary; hoje nao ha nenhuma.
 
 **Os proprios gates sao testados.** `scripts/testar-scripts.sh` (step do `Build & Test` e do `ci-local.sh`) exercita o caminho
-de FALHA de todos os scripts de CI com entradas sinteticas (72 casos) e, depois, planta defeitos em copias dos scripts
+de FALHA de todos os scripts de CI com entradas sinteticas (70 casos) e, depois, planta defeitos em copias dos scripts
 exigindo que cada um seja detectado (31 mutantes; dentro de um mutante o primeiro caso que reprova basta). Os casos:
 - **gate e guardrail isolados**: 79,9% reprova, 80,0% aprova, 79,96% arredondado reprova, resumo ausente, `COBERTURA_MINIMA`
   vazio, MassTransit 9.x direto e so transitivo, `MassTransit.MongoDb`, saida do Windows com CRLF. O guardrail ganhou o modo
@@ -183,8 +187,9 @@ a cada `IntervaloDoOutboxEmMs`) e custa ate 90 s para tirar um pod da rotacao.
   readiness (30 s), entao cada probe ve uma medicao nova; excecao e cancelamento do chamador nunca sao guardados (os dois checks
   deixam o cancelamento subir; um 503 falso de uma requisicao abortada nao pode ficar 5 s no cache). Mitigacao no
   `OficinaMecanica.Infra` (ADR 0007 de la): a policy da APIM que devolve 404 para `/health/ready` e `/metrics` na rota publica
-  existe e fica ativa quando o Terraform do Infra for aplicado (ainda nao foi); as probes do kubelet e a coleta de metricas nao
-  passam pela APIM. O cache limita o custo, mas nao esconde o endpoint.
+  esta escrita no Terraform do Infra, mas em 2026-11-10 `/health/ready` e `/metrics` ainda respondem 200 pela APIM, em todos
+  os servicos: o bloqueio nao esta efetivo (pendente, so com autorizacao do usuario). As probes do kubelet e a coleta de
+  metricas nao passam pela APIM. O cache limita o custo, mas nao esconde o endpoint.
 - O runner do GitHub nao precisa alcancar o Atlas (o deploy nao toca o banco), mas o egress do AKS precisa estar na
   allowlist do Atlas (`OficinaMecanica.Banco`).
 - Antes da publicacao o workflow so foi validado estaticamente e pelos scripts, e as actions estao fixadas por SHA sem que o
