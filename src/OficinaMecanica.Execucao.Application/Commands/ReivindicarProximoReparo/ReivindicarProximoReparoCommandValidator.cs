@@ -1,0 +1,13 @@
+using FluentValidation;
+
+namespace OficinaMecanica.Execucao.Application.Commands.ReivindicarProximoReparo;
+
+public class ReivindicarProximoReparoCommandValidator : AbstractValidator<ReivindicarProximoReparoCommand>
+{
+    public ReivindicarProximoReparoCommandValidator()
+    {
+        RuleFor(x => x.MecanicoId)
+            .NotEmpty().WithMessage("O mecânico é obrigatório.")
+            .MaximumLength(100).WithMessage("O identificador do mecânico deve ter no máximo 100 caracteres.");
+    }
+}

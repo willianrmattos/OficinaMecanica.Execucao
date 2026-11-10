@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OficinaMecanica.Execucao.Application\OficinaMecanica.Execucao.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Os testes trocam a fabrica de conexao do RabbitMqHealthCheck (construtor internal) para simular uma conexao tardia. -->
+    <InternalsVisibleTo Include="OficinaMecanica.Execucao.Integration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MassTransit fixado em 8.5.12 (a 9.x e comercial): versao exata, nunca faixa. -->
+    <PackageReference Include="MassTransit" Version="8.5.12" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.12" />
+    <PackageReference Include="MassTransit.MongoDb" Version="8.5.12" />
+    <!-- Mesma versao que o MassTransit.MongoDb 8.5.12 traz de forma transitiva. -->
+    <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols" Version="7.0.3" />
+    <!-- Optei por fixar a versao corrigida (7.1.2) de duas dependencias transitivas do JwtBearer 8.0.0 que
+         carregam aviso de vulnerabilidade (GHSA-59j7-ghrg-fj52). -->
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="7.1.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
+  </ItemGroup>
+
+</Project>
