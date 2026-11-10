@@ -96,7 +96,7 @@ sai da `main`, para um push em `release` nao sobrescrever o que esta em producao
 O SHA veio da tag que o workflow ja usava, resolvida pela API do GitHub para o commit em que ela apontava no dia, e a versao do
 comentario e a tag semver mais especifica que aponta para o mesmo commit (no `dorny/test-reporter` e `v1`). O pin nao audita o
 conteudo: impede que a tag seja movida depois, mas nao prova que o commit de hoje e confiavel. O Trivy estava referenciado como
-`0.28.0`, tag que nao existe no repositorio da action (a real e `v0.28.0`); o pin aponta para a `v0.28.0`. O Dependabot
+`0.28.0`, tag que nao existe no repositorio da action (a real e `v0.28.0`); o pin aponta hoje para a `v0.36.0`: a `v0.28.0` chama internamente `setup-trivy@v0.2.1`, tag que deixou de existir, e a `v0.36.0` fixa as actions internas por SHA. O Dependabot
 (`github-actions`) propoe as atualizacoes mantendo o formato `@sha # versao`.
 
 **Guardrail do MassTransit.** `scripts/verificar-masstransit.sh` roda `dotnet list package --include-transitive` e falha se
