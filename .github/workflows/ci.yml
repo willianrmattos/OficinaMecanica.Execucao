@@ -114,7 +114,7 @@ jobs:
 
       - name: Publicar openapi.json
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openapi.json
           path: artifacts/openapi.json
@@ -153,7 +153,7 @@ jobs:
 
       - name: Publicar resultados brutos dos testes
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: resultados-dos-testes
           path: TestResults/**/*.trx
@@ -161,7 +161,7 @@ jobs:
 
       - name: Publicar relatorio HTML de cobertura
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: relatorio-de-cobertura
           path: |
@@ -172,7 +172,7 @@ jobs:
       # O job quality importa estes arquivos no SonarCloud em vez de rodar os testes de novo.
       - name: Publicar OpenCover para o Quality
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cobertura-opencover
           path: TestResults/**/coverage.opencover.xml
@@ -350,7 +350,7 @@ jobs:
         run: docker save "$IMAGE_SHA" --output imagem-escaneada.tar
 
       - name: Publicar a imagem escaneada (artifact)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: imagem-escaneada
           path: imagem-escaneada.tar
